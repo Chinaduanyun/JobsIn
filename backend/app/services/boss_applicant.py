@@ -1,4 +1,4 @@
-"""Boss直聘 自动投递: 打开岗位页 → 点击沟通 → 输入文案 → 发送"""
+from __future__ import annotations
 
 import asyncio
 import logging

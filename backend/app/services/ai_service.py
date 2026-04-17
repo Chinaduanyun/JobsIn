@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AI 服务: 岗位匹配分析 + 沟通文案生成"""
 
 import json

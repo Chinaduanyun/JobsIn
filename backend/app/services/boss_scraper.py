@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Boss直聘岗位采集服务"""
 
 import asyncio

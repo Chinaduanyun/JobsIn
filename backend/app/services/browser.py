@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Boss直聘浏览器管理 — 启动、登录、Cookie 持久化"""
 
 import asyncio

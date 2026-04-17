@@ -25,7 +25,7 @@
 ### 1. 系统要求
 
 - **操作系统**: Linux (推荐 Ubuntu 22.04+) 或 macOS
-- **Python**: 3.10+
+- **Python**: 3.9+
 - **Node.js**: 18+
 - **磁盘**: 500MB+（Chromium 浏览器约 300MB）
 - **内存**: 2GB+
