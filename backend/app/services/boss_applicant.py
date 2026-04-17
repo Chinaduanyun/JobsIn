@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import random
-from datetime import date
+from datetime import datetime, timezone
 
 from sqlmodel import select, func
 
@@ -17,11 +17,12 @@ logger = logging.getLogger(__name__)
 async def get_today_applied() -> int:
     """获取今日已投递数量"""
     async with async_session() as session:
-        today = date.today().isoformat()
+        from datetime import datetime, timezone
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         result = await session.execute(
             select(func.count()).select_from(Application).where(
                 Application.status == "sent",
-                Application.applied_at >= today,
+                Application.applied_at >= today_start,
             )
         )
         return result.scalar() or 0
@@ -36,7 +37,7 @@ async def get_daily_limit() -> int:
 
 async def apply_to_job(job_id: int, greeting_text: str | None = None) -> Application:
     """对指定岗位发起沟通"""
-    if not boss_browser._browser or not boss_browser._logged_in:
+    if not boss_browser.launched or not boss_browser.logged_in:
         raise RuntimeError("浏览器未启动或未登录")
 
     # 检查每日限额
@@ -68,7 +69,7 @@ async def apply_to_job(job_id: int, greeting_text: str | None = None) -> Applica
 
     # 在浏览器中执行投递
     try:
-        page = boss_browser._page
+        page = boss_browser.page
         if not page:
             raise RuntimeError("浏览器页面不可用")
 
@@ -113,8 +114,7 @@ async def apply_to_job(job_id: int, greeting_text: str | None = None) -> Applica
             app = await session.get(Application, app_id)
             if app:
                 app.status = "sent"
-                from datetime import datetime
-                app.applied_at = datetime.utcnow()
+                app.applied_at = datetime.now(timezone.utc)
                 await session.commit()
                 await session.refresh(app)
                 return app

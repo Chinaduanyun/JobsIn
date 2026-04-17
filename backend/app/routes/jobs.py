@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, func
 
@@ -33,7 +33,7 @@ async def list_jobs(
 async def get_job(job_id: int, session: AsyncSession = Depends(get_session)):
     job = await session.get(Job, job_id)
     if not job:
-        return {"error": "not found"}, 404
+        raise HTTPException(status_code=404, detail="岗位不存在")
 
     # 附带分析结果
     analysis_stmt = select(JobAnalysis).where(JobAnalysis.job_id == job_id)

@@ -120,15 +120,15 @@ class BossScraper:
 
                 await asyncio.sleep(random.uniform(3, 8))
 
-            # 完成
-            status = "completed" if self._running_tasks.get(task_id) else "cancelled"
+            # 完成 — 仅在任务仍为 running 时更新，避免覆盖已取消的状态
+            final_status = "completed" if self._running_tasks.get(task_id) else "cancelled"
             async with async_session_factory() as session:
                 t = await session.get(CollectionTask, task_id)
-                if t:
-                    t.status = status
+                if t and t.status == "running":
+                    t.status = final_status
                     t.total_collected = collected
                     await session.commit()
-            logger.info("任务 %d 完成: %s, 采集 %d 个岗位", task_id, status, collected)
+            logger.info("任务 %d 完成: %s, 采集 %d 个岗位", task_id, final_status, collected)
 
         except Exception as e:
             logger.error("任务 %d 异常: %s", task_id, e)
