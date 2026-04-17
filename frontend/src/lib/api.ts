@@ -17,7 +17,7 @@ export const jobs = {
   list: (params?: { page?: number; page_size?: number; keyword?: string }) => {
     const q = new URLSearchParams()
     if (params?.page) q.set('page', String(params.page))
-    if (params?.page_size) q.set('page_size', String(params.page_size))
+    if (params?.page_size) q.set('size', String(params.page_size))
     if (params?.keyword) q.set('keyword', params.keyword)
     return request<import('@/types').PaginatedResponse<import('@/types').Job>>(
       `/jobs?${q}`

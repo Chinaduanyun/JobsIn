@@ -6,16 +6,19 @@ import { Button } from '@/components/ui/button'
 import { jobs as jobsApi } from '@/lib/api'
 import type { Job, PaginatedResponse } from '@/types'
 import { Search, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react'
+import JobDetailDrawer from '@/components/JobDetailDrawer'
 
 export default function JobsPage() {
   const [data, setData] = useState<PaginatedResponse<Job>>({
     items: [],
     total: 0,
     page: 1,
-    page_size: 20,
+    size: 20,
   })
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   const fetchJobs = (p: number, kw: string) => {
     jobsApi.list({ page: p, page_size: 20, keyword: kw || undefined }).then(setData).catch(() => {})
@@ -30,7 +33,20 @@ export default function JobsPage() {
     fetchJobs(1, keyword)
   }
 
-  const totalPages = Math.ceil(data.total / data.page_size) || 1
+  const handleJobClick = async (job: Job) => {
+    // Fetch full detail with analysis
+    try {
+      const detail = await jobsApi.get(job.id)
+      const full = (detail as any).job || detail
+      const analysis = (detail as any).analysis || null
+      setSelectedJob({ ...full, analysis })
+    } catch {
+      setSelectedJob(job)
+    }
+    setDrawerOpen(true)
+  }
+
+  const totalPages = Math.ceil(data.total / data.size) || 1
 
   return (
     <div>
@@ -60,7 +76,11 @@ export default function JobsPage() {
           </Card>
         ) : (
           data.items.map((job) => (
-            <Card key={job.id} className="hover:shadow-md transition-shadow">
+            <Card
+              key={job.id}
+              className="hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => handleJobClick(job)}
+            >
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
                   <div>
@@ -106,6 +126,7 @@ export default function JobsPage() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-muted-foreground hover:text-foreground"
+                      onClick={(e) => e.stopPropagation()}
                     >
                       <ExternalLink className="h-4 w-4" />
                     </a>
@@ -146,6 +167,13 @@ export default function JobsPage() {
           </div>
         </div>
       )}
+
+      {/* Job detail drawer */}
+      <JobDetailDrawer
+        job={selectedJob}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+      />
     </div>
   )
 }

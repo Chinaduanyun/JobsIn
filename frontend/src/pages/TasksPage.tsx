@@ -1,12 +1,13 @@
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useEffect, useState, useRef, type ChangeEvent } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { tasks as tasksApi } from '@/lib/api'
-import type { CollectionTask } from '@/types'
-import { Plus, Play, Square, Trash2 } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { tasks as tasksApi, browser as browserApi } from '@/lib/api'
+import type { CollectionTask, BrowserStatus } from '@/types'
+import { Plus, Play, Square, Trash2, AlertTriangle, Loader2 } from 'lucide-react'
 
 const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   pending: { label: '等待中', variant: 'outline' },
@@ -20,24 +21,54 @@ export default function TasksPage() {
   const [taskList, setTaskList] = useState<CollectionTask[]>([])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ keyword: '', city: '全国', salary: '' })
+  const [browserStatus, setBrowserStatus] = useState<BrowserStatus | null>(null)
+  const [error, setError] = useState('')
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const refresh = () => {
     tasksApi.list().then(setTaskList).catch(() => {})
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    refresh()
+    browserApi.status().then(setBrowserStatus).catch(() => {})
+  }, [])
+
+  // Poll while any task is running
+  useEffect(() => {
+    const hasRunning = taskList.some(t => t.status === 'running')
+    if (hasRunning && !pollRef.current) {
+      pollRef.current = setInterval(refresh, 3000)
+    } else if (!hasRunning && pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [taskList])
 
   const handleCreate = async () => {
     if (!form.keyword.trim()) return
-    await tasksApi.create(form)
-    setForm({ keyword: '', city: '全国', salary: '' })
-    setShowForm(false)
-    refresh()
+    setError('')
+    try {
+      await tasksApi.create(form)
+      setForm({ keyword: '', city: '全国', salary: '' })
+      setShowForm(false)
+      refresh()
+    } catch (e: any) {
+      setError(e.message || '创建失败')
+    }
   }
 
   const handleStart = async (id: number) => {
-    await tasksApi.start(id)
-    refresh()
+    setError('')
+    try {
+      await tasksApi.start(id)
+      refresh()
+    } catch (e: any) {
+      setError(e.message || '启动失败，请确保浏览器已启动并登录')
+    }
   }
 
   const handleCancel = async (id: number) => {
@@ -50,6 +81,8 @@ export default function TasksPage() {
     refresh()
   }
 
+  const browserReady = browserStatus?.launched && browserStatus?.logged_in
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -58,6 +91,24 @@ export default function TasksPage() {
           <Plus className="h-4 w-4 mr-1" /> 新建任务
         </Button>
       </div>
+
+      {/* Browser status warning */}
+      {!browserReady && browserStatus !== null && (
+        <Alert className="mb-4">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            {!browserStatus?.launched
+              ? '浏览器未启动，请先到「系统设置」启动浏览器'
+              : '浏览器未登录，请先到「系统设置」扫码登录'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Create form */}
       {showForm && (
@@ -121,17 +172,23 @@ export default function TasksPage() {
                         {task.salary && ` · ${task.salary}`}
                       </span>
                     </CardTitle>
-                    <Badge variant={st.variant}>{st.label}</Badge>
+                    <Badge variant={st.variant}>
+                      {task.status === 'running' && (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      )}
+                      {st.label}
+                    </Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">
                       已采集 {task.total_collected} 个岗位
+                      {task.max_pages > 0 && ` · 最大 ${task.max_pages} 页`}
                     </span>
                     <div className="flex gap-1">
                       {task.status === 'pending' && (
-                        <Button size="sm" variant="outline" onClick={() => handleStart(task.id)}>
+                        <Button size="sm" variant="outline" onClick={() => handleStart(task.id)} disabled={!browserReady}>
                           <Play className="h-3 w-3 mr-1" /> 开始
                         </Button>
                       )}

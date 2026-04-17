@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator'
 import { config as configApi } from '@/lib/api'
 import type { SystemConfig } from '@/types'
 import { Save } from 'lucide-react'
+import BrowserPanel from '@/components/BrowserPanel'
 
 const configFields = [
   { key: 'ai_api_key', label: 'AI API Key', type: 'password', placeholder: 'sk-...' },
@@ -30,9 +31,13 @@ export default function SettingsPage() {
   }
 
   return (
-    <div>
-      <h2 className="text-2xl font-bold mb-4">系统设置</h2>
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold">系统设置</h2>
 
+      {/* Browser panel */}
+      <BrowserPanel />
+
+      {/* AI Config */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">AI 配置</CardTitle>
