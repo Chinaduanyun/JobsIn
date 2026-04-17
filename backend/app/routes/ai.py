@@ -7,7 +7,7 @@ import asyncio
 import logging
 
 from app.database import get_session, async_session
-from app.models import JobAnalysis
+from app.models import JobAnalysis, SystemConfig
 from app.services import ai_service
 
 router = APIRouter()
@@ -15,6 +15,18 @@ logger = logging.getLogger(__name__)
 
 # 批量任务进度追踪
 _batch_progress: dict[str, dict] = {}
+
+
+async def _get_concurrency() -> int:
+    """从数据库读取 LLM 并发数配置"""
+    try:
+        async with async_session() as session:
+            cfg = await session.get(SystemConfig, "ai_concurrency")
+            if cfg and cfg.value.isdigit():
+                return max(1, min(int(cfg.value), 10))
+    except Exception:
+        pass
+    return 1
 
 
 class AnalyzeRequest(BaseModel):
@@ -64,6 +76,7 @@ async def get_analysis(job_id: int, session: AsyncSession = Depends(get_session)
         select(JobAnalysis)
         .where(JobAnalysis.job_id == job_id)
         .order_by(JobAnalysis.created_at.desc())
+        .limit(1)
     )
     analysis = result.scalar_one_or_none()
     if not analysis:
@@ -88,14 +101,20 @@ async def batch_analyze(data: BatchAnalyzeRequest):
 
     async def run_batch():
         progress = _batch_progress[batch_id]
-        for job_id in data.job_ids:
-            try:
-                await ai_service.analyze_job(job_id)
-                progress["completed"] += 1
-            except Exception as e:
-                progress["failed"] += 1
-                progress["errors"].append(f"岗位{job_id}: {str(e)[:50]}")
-                logger.warning("批量分析 job %d 失败: %s", job_id, e)
+        concurrency = await _get_concurrency()
+        sem = asyncio.Semaphore(concurrency)
+
+        async def analyze_one(job_id: int):
+            async with sem:
+                try:
+                    await ai_service.analyze_job(job_id)
+                    progress["completed"] += 1
+                except Exception as e:
+                    progress["failed"] += 1
+                    progress["errors"].append(f"岗位{job_id}: {str(e)[:50]}")
+                    logger.warning("批量分析 job %d 失败: %s", job_id, e)
+
+        await asyncio.gather(*[analyze_one(jid) for jid in data.job_ids])
         progress["status"] = "completed"
 
     asyncio.create_task(run_batch())
@@ -119,14 +138,20 @@ async def batch_greeting(data: BatchGreetingRequest):
 
     async def run_batch():
         progress = _batch_progress[batch_id]
-        for job_id in data.job_ids:
-            try:
-                await ai_service.generate_greeting(job_id)
-                progress["completed"] += 1
-            except Exception as e:
-                progress["failed"] += 1
-                progress["errors"].append(f"岗位{job_id}: {str(e)[:50]}")
-                logger.warning("批量文案 job %d 失败: %s", job_id, e)
+        concurrency = await _get_concurrency()
+        sem = asyncio.Semaphore(concurrency)
+
+        async def greeting_one(job_id: int):
+            async with sem:
+                try:
+                    await ai_service.generate_greeting(job_id)
+                    progress["completed"] += 1
+                except Exception as e:
+                    progress["failed"] += 1
+                    progress["errors"].append(f"岗位{job_id}: {str(e)[:50]}")
+                    logger.warning("批量文案 job %d 失败: %s", job_id, e)
+
+        await asyncio.gather(*[greeting_one(jid) for jid in data.job_ids])
         progress["status"] = "completed"
 
     asyncio.create_task(run_batch())

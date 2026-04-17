@@ -14,6 +14,7 @@ const configFields = [
   { key: 'ai_api_key', label: 'AI API Key', type: 'password', placeholder: 'sk-...' },
   { key: 'ai_base_url', label: 'AI Base URL', type: 'text', placeholder: 'https://api.siliconflow.cn/v1' },
   { key: 'ai_model', label: 'AI 模型', type: 'text', placeholder: 'Qwen/Qwen2.5-72B-Instruct' },
+  { key: 'ai_concurrency', label: 'AI 并发数', type: 'number', placeholder: '1', hint: '批量分析/文案生成时的并发请求数，1-10' },
   { key: 'daily_apply_limit', label: '每日投递上限', type: 'number', placeholder: '50' },
 ]
 
@@ -108,6 +109,9 @@ export default function SettingsPage() {
                 value={cfg[f.key] || ''}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setCfg({ ...cfg, [f.key]: e.target.value })}
               />
+              {'hint' in f && f.hint && (
+                <p className="text-xs text-muted-foreground mt-1">{f.hint}</p>
+              )}
             </div>
           ))}
         </CardContent>

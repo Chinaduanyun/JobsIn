@@ -2,9 +2,10 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.database import init_db
 from app.routes import jobs, tasks, resumes, ai, browser, config, applications, extension
@@ -24,9 +25,9 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="FindJobs", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="FindJobs", version="0.7.0", lifespan=lifespan)
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.7.0"
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,7 +54,16 @@ async def health():
 async def version():
     return {"version": APP_VERSION}
 
-# 前端静态文件（生产模式）
+# 前端静态文件（生产模式）— SPA 路由支持
 frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
 if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    # 静态资源 (JS/CSS/images)
+    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(request: Request, full_path: str):
+        """SPA catch-all: 非 API 请求都返回 index.html"""
+        file_path = frontend_dist / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(frontend_dist / "index.html")

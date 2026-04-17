@@ -8,7 +8,7 @@ from sqlmodel import select
 from pydantic import BaseModel
 
 from app.database import get_session
-from app.models import Application, Job
+from app.models import Application, Job, JobAnalysis
 from app.services.boss_applicant import apply_to_job, batch_apply, get_today_applied
 
 router = APIRouter()
@@ -69,10 +69,24 @@ async def list_applications(
     items = []
     for app in apps:
         job = await session.get(Job, app.job_id)
+        # 获取最新 AI 分析
+        analysis_result = await session.execute(
+            select(JobAnalysis)
+            .where(JobAnalysis.job_id == app.job_id)
+            .order_by(JobAnalysis.created_at.desc())
+            .limit(1)
+        )
+        analysis = analysis_result.scalar_one_or_none()
         items.append({
             **app.model_dump(),
             "job_title": job.title if job else "",
             "job_company": job.company if job else "",
+            "job_salary": job.salary if job else "",
+            "job_city": job.city if job else "",
+            "job_experience": job.experience if job else "",
+            "overall_score": analysis.overall_score if analysis else None,
+            "suggestion": analysis.suggestion if analysis else "",
+            "ai_greeting": analysis.greeting_text if analysis else "",
         })
 
     return {"items": items, "page": page, "size": size}

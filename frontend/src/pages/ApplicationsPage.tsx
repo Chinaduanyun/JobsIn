@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
 import { applications as appsApi } from '@/lib/api'
-import { ChevronLeft, ChevronRight, ExternalLink, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Clock, CheckCircle, XCircle, Loader2, Brain, MessageSquare } from 'lucide-react'
 
 interface ApplicationItem {
   id: number
@@ -14,6 +15,12 @@ interface ApplicationItem {
   created_at: string
   job_title: string
   job_company: string
+  job_salary: string
+  job_city: string
+  job_experience: string
+  overall_score: number | null
+  suggestion: string
+  ai_greeting: string
 }
 
 export default function ApplicationsPage() {
@@ -92,20 +99,49 @@ export default function ApplicationsPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <CardTitle className="text-base">{app.job_title || `岗位 #${app.job_id}`}</CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">{app.job_company}</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {app.job_company}
+                      {app.job_city && ` · ${app.job_city}`}
+                      {app.job_experience && ` · ${app.job_experience}`}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {app.job_salary && (
+                      <Badge variant="secondary" className="text-orange-600">{app.job_salary}</Badge>
+                    )}
                     {statusBadge(app.status)}
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
-                {app.greeting_text && (
-                  <div className="bg-muted/50 rounded-md p-3 mb-2 text-sm">
-                    <p className="text-xs text-muted-foreground mb-1">沟通文案:</p>
-                    <p className="whitespace-pre-wrap">{app.greeting_text}</p>
+              <CardContent className="space-y-2">
+                {/* AI 匹配度 */}
+                {app.overall_score !== null && (
+                  <div className="bg-blue-50 dark:bg-blue-950/30 rounded-md p-3 text-sm">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-400">
+                        <Brain className="h-3 w-3" /> AI 匹配度
+                      </span>
+                      <span className="text-sm font-bold text-blue-700 dark:text-blue-400">
+                        {Math.round(app.overall_score * 100)} 分
+                      </span>
+                    </div>
+                    <Progress value={app.overall_score * 100} className="h-1.5" />
+                    {app.suggestion && (
+                      <p className="text-xs text-muted-foreground mt-2">{app.suggestion}</p>
+                    )}
                   </div>
                 )}
+
+                {/* AI 沟通文案 */}
+                {(app.ai_greeting || app.greeting_text) && (
+                  <div className="bg-muted/50 rounded-md p-3 text-sm">
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                      <MessageSquare className="h-3 w-3" /> 沟通文案
+                    </p>
+                    <p className="whitespace-pre-wrap">{app.greeting_text || app.ai_greeting}</p>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>投递时间: {formatTime(app.applied_at || app.created_at)}</span>
                 </div>

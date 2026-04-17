@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Sheet,
   SheetContent,
@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { ai as aiApi, jobs as jobsApi } from '@/lib/api'
+import { ai as aiApi } from '@/lib/api'
 import type { Job, JobAnalysis } from '@/types'
 import {
   Brain,
@@ -42,7 +42,19 @@ export default function JobDetailDrawer({ job, open, onClose, onApply }: Props) 
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
 
-  // Load existing analysis when job changes
+  // Load existing analysis when job changes or drawer opens
+  useEffect(() => {
+    if (open && job) {
+      setError('')
+      setGreeting('')
+      loadAnalysis(job.id)
+    }
+    if (!open) {
+      setAnalysis(null)
+      setGreeting('')
+    }
+  }, [open, job?.id])
+
   const loadAnalysis = async (jobId: number) => {
     try {
       const a = await aiApi.getAnalysis(jobId)
@@ -53,16 +65,10 @@ export default function JobDetailDrawer({ job, open, onClose, onApply }: Props) 
     }
   }
 
-  // Reset state when sheet opens with new job
+  // Handle sheet close
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) {
       onClose()
-      return
-    }
-    if (job) {
-      setError('')
-      setGreeting('')
-      loadAnalysis(job.id)
     }
   }
 

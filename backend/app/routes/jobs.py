@@ -38,8 +38,13 @@ async def get_job(job_id: int, session: AsyncSession = Depends(get_session)):
     if not job:
         raise HTTPException(status_code=404, detail="岗位不存在")
 
-    # 附带分析结果
-    analysis_stmt = select(JobAnalysis).where(JobAnalysis.job_id == job_id)
+    # 附带分析结果 — 取最新一条
+    analysis_stmt = (
+        select(JobAnalysis)
+        .where(JobAnalysis.job_id == job_id)
+        .order_by(JobAnalysis.created_at.desc())
+        .limit(1)
+    )
     analysis = (await session.execute(analysis_stmt)).scalar_one_or_none()
 
     return {"job": job, "analysis": analysis}

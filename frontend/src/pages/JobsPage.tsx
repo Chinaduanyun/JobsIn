@@ -113,6 +113,7 @@ export default function JobsPage() {
 
   const handleBatchApply = async () => {
     if (selectedIds.size === 0) return
+    if (!confirm(`确定要批量投递选中的 ${selectedIds.size} 个岗位吗？`)) return
     setBatchLoading('apply')
     setBatchMsg('')
     try {

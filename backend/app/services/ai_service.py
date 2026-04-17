@@ -181,6 +181,7 @@ async def generate_greeting(job_id: int) -> str:
             select(JobAnalysis)
             .where(JobAnalysis.job_id == job_id)
             .order_by(JobAnalysis.created_at.desc())
+            .limit(1)
         )
         analysis = result.scalar_one_or_none()
         if not analysis:

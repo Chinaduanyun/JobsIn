@@ -19,6 +19,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse(result);
     return true;
   }
+
+  if (message.action === 'extract_full_job') {
+    // 陪伴模式：从详情页提取完整岗位信息（列表级 + 详情级）
+    const result = extractFullJob();
+    sendResponse(result);
+    return true;
+  }
 });
 
 // ── 字体解密工具 ─────────────────────────────
@@ -230,4 +237,86 @@ function extractDetail() {
     salary: salary,
     page_url: window.location.href,
   };
+}
+
+// ── 陪伴模式：从详情页提取完整岗位数据 ──────────
+
+function extractFullJob() {
+  try {
+    // 岗位标题
+    const titleEl = document.querySelector('.name h1, .job-banner .name h1, .info-primary .name h1');
+    let title = titleEl ? titleEl.textContent.trim() : '';
+
+    // 薪资
+    const salaryEl = document.querySelector('.salary, .info-primary .salary');
+    let salary = '';
+    if (salaryEl) {
+      salary = decodeFontEncryptedText(salaryEl);
+    }
+
+    // 城市 / 经验 / 学历 — 通常在 .job-primary-detail 的 p 标签里
+    const detailItems = document.querySelectorAll('.job-primary-detail p, .detail-content .job-detail span');
+    let city = '', experience = '', education = '';
+    detailItems.forEach((el, i) => {
+      const text = el.textContent.trim();
+      if (i === 0) city = text;
+      if (i === 1) experience = text;
+      if (i === 2) education = text;
+    });
+
+    // 备选选择器
+    if (!city) {
+      const cityEl = document.querySelector('.location-address, .job-primary-detail .text-city');
+      city = cityEl ? cityEl.textContent.trim() : '';
+    }
+
+    // 公司名
+    const companyEl = document.querySelector('.company-info a, .sider-company .company-name, .company-name');
+    const company = companyEl ? companyEl.textContent.trim() : '';
+
+    // HR 信息
+    const hrNameEl = document.querySelector('.boss-info-attr .name, .detail-figure-text .name, .boss-info .name');
+    const hrTitleEl = document.querySelector('.boss-info-attr .boss-title, .detail-figure-text .title, .boss-info .title');
+    const hrOnlineEl = document.querySelector('.boss-online-tag, .boss-active-time');
+    const hr_name = hrNameEl ? hrNameEl.textContent.trim() : '';
+    const hr_title = hrTitleEl ? hrTitleEl.textContent.trim() : '';
+    const hr_active = hrOnlineEl ? hrOnlineEl.textContent.trim() : '';
+
+    // 岗位描述
+    const descEl = document.querySelector('.job-sec-text, .job-detail-section');
+    const description = descEl ? descEl.innerText.trim() : '';
+
+    // 标签
+    const tagEls = document.querySelectorAll('.job-tags .tag-item, .job-keyword-list li');
+    const tags = Array.from(tagEls).map(el => el.textContent.trim()).join(',');
+
+    // 公司信息
+    const sizeEl = document.querySelector('.sider-company p:last-child, .company-info-size');
+    const industryEl = document.querySelector('.sider-company p:first-child, .company-info-industry');
+    const company_size = sizeEl ? sizeEl.textContent.trim() : '';
+    const company_industry = industryEl ? industryEl.textContent.trim() : '';
+
+    return {
+      success: true,
+      data: {
+        title,
+        salary,
+        company,
+        city,
+        experience,
+        education,
+        description,
+        url: window.location.href,
+        hr_name,
+        hr_title,
+        hr_active,
+        company_size,
+        company_industry,
+        tags,
+      }
+    };
+  } catch (e) {
+    console.warn('[FindJobs] 陪伴模式提取失败:', e);
+    return { success: false, error: e.message };
+  }
 }

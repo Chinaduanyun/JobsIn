@@ -2,10 +2,11 @@
  * FindJobs Chrome Extension — Background Service Worker
  *
  * 职责:
- * 1. 轮询后端获取采集命令 (navigate + extract)
- * 2. 通过 chrome.tabs API 导航
- * 3. 向 content script 发消息提取 DOM 数据
- * 4. 把结果 POST 回后端
+ * 1. 自动模式: 轮询后端获取采集命令 (navigate + extract)
+ * 2. 陪伴模式: 监听用户浏览，在岗位详情页自动提取并保存
+ * 3. 通过 chrome.tabs API 导航
+ * 4. 向 content script 发消息提取 DOM 数据
+ * 5. 把结果 POST 回后端
  */
 
 const API_BASE = 'http://localhost:27788';
@@ -13,6 +14,12 @@ const POLL_INTERVAL = 1500; // ms
 let isPolling = false;
 let connected = false;
 let tabId = null; // 采集用的标签页
+
+// ── 模式管理 ──────────────────────────────────
+// 'auto' = 自动模式（轮询后端命令）
+// 'companion' = 陪伴模式（监听用户浏览，自动保存岗位）
+let currentMode = 'auto';
+const savedUrls = new Set(); // 陪伴模式已保存的 URL（避免重复保存）
 
 // ── 轮询后端命令 ──────────────────────────────
 
@@ -225,11 +232,92 @@ function stopPolling() {
   console.log('[FindJobs] 停止轮询');
 }
 
+// ── 陪伴模式：监听标签页 URL 变化 ──────────────
+
+function isJobDetailUrl(url) {
+  return url && /zhipin\.com\/job_detail\//.test(url);
+}
+
+// 已经在处理中的 tab，防止重复触发
+const processingTabs = new Set();
+
+async function onCompanionTabUpdated(tid, changeInfo, tab) {
+  if (currentMode !== 'companion') return;
+  if (changeInfo.status !== 'complete') return;
+  if (!tab.url || !isJobDetailUrl(tab.url)) return;
+  if (savedUrls.has(tab.url)) return;
+  if (processingTabs.has(tid)) return;
+
+  processingTabs.add(tid);
+  console.log('[FindJobs][陪伴] 检测到岗位详情页:', tab.url);
+
+  // 等待页面渲染
+  await new Promise(r => setTimeout(r, 2000));
+
+  try {
+    const response = await sendToContent(tid, { action: 'extract_full_job' }, 10000);
+
+    if (!response || !response.success || !response.data || !response.data.title) {
+      console.warn('[FindJobs][陪伴] 提取失败或无标题');
+      return;
+    }
+
+    // POST 到后端保存
+    const resp = await fetch(`${API_BASE}/api/extension/companion-save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(response.data),
+    });
+
+    if (resp.ok) {
+      const result = await resp.json();
+      if (result.saved) {
+        savedUrls.add(tab.url);
+        console.log('[FindJobs][陪伴] ✅ 岗位已保存:', response.data.title, '(id=' + result.job_id + ')');
+        // 通过 badge 提示用户
+        chrome.action.setBadgeText({ text: '✓', tabId: tid });
+        chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId: tid });
+        setTimeout(() => {
+          chrome.action.setBadgeText({ text: '', tabId: tid });
+        }, 3000);
+      } else if (result.reason === 'duplicate') {
+        savedUrls.add(tab.url);
+        console.log('[FindJobs][陪伴] 岗位已存在，跳过');
+        chrome.action.setBadgeText({ text: '⊘', tabId: tid });
+        chrome.action.setBadgeBackgroundColor({ color: '#eab308', tabId: tid });
+        setTimeout(() => {
+          chrome.action.setBadgeText({ text: '', tabId: tid });
+        }, 2000);
+      }
+    }
+  } catch (err) {
+    console.error('[FindJobs][陪伴] 保存失败:', err);
+  } finally {
+    processingTabs.delete(tid);
+  }
+}
+
+chrome.tabs.onUpdated.addListener(onCompanionTabUpdated);
+
+// ── 模式切换 ──────────────────────────────────
+
+function setMode(mode) {
+  currentMode = mode;
+  chrome.storage.local.set({ mode });
+  console.log('[FindJobs] 模式切换:', mode);
+
+  if (mode === 'auto') {
+    startPolling();
+  } else {
+    stopPolling();
+  }
+}
+
 // ── 消息处理 (来自 popup) ────────────────────
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'get_status') {
-    sendResponse({ connected, polling: isPolling, tabId });
+    sendResponse({ connected, polling: isPolling, tabId, mode: currentMode });
     return true;
   }
   if (message.action === 'start_polling') {
@@ -242,8 +330,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: true });
     return true;
   }
+  if (message.action === 'set_mode') {
+    setMode(message.mode);
+    sendResponse({ ok: true, mode: currentMode });
+    return true;
+  }
 });
 
-// ── 自动启动轮询 ─────────────────────────────
+// ── 初始化：恢复上次保存的模式 ─────────────────
 
-startPolling();
+chrome.storage.local.get(['mode'], (result) => {
+  currentMode = result.mode || 'auto';
+  console.log('[FindJobs] 初始模式:', currentMode);
+  if (currentMode === 'auto') {
+    startPolling();
+  }
+});

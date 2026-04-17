@@ -11,6 +11,7 @@ DEFAULTS = {
     "ai_api_key": "",
     "ai_base_url": "https://api.openai.com/v1",
     "ai_model": "gpt-4o-mini",
+    "ai_concurrency": "1",
     "daily_apply_limit": "100",
     "today_applied": "0",
     "scrape_page_delay": "3-8",

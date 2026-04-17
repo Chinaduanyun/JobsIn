@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <style>
     body {
-      width: 280px;
+      width: 300px;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
@@ -30,11 +30,49 @@
     .dot-green { background: #22c55e; }
     .dot-red { background: #ef4444; }
     .dot-yellow { background: #eab308; }
+
+    /* 模式切换 */
+    .mode-switch {
+      display: flex;
+      gap: 0;
+      margin: 12px 0;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 2px solid #e5e7eb;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 10px 4px;
+      border: none;
+      font-size: 13px;
+      cursor: pointer;
+      background: #f9fafb;
+      color: #6b7280;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .mode-btn:first-child { border-right: 1px solid #e5e7eb; }
+    .mode-btn.active {
+      background: #2563eb;
+      color: white;
+      font-weight: 600;
+    }
+    .mode-btn:hover:not(.active) {
+      background: #f3f4f6;
+    }
+    .mode-desc {
+      font-size: 11px;
+      color: #9ca3af;
+      margin: -4px 0 12px;
+      padding: 0 2px;
+    }
+    .mode-desc.companion { color: #059669; }
+
     .btn {
       display: block;
       width: 100%;
       padding: 8px 0;
-      margin-top: 12px;
+      margin-top: 8px;
       border: none;
       border-radius: 6px;
       font-size: 14px;
@@ -45,6 +83,7 @@
     .btn-green:hover { background: #16a34a; }
     .btn-red { background: #ef4444; }
     .btn-red:hover { background: #dc2626; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .info {
       margin-top: 12px;
       padding-top: 12px;
@@ -62,12 +101,21 @@
     <span id="statusText">检查中...</span>
   </div>
 
-  <div class="status-row">
-    <div id="pollDot" class="status-dot dot-red"></div>
-    <span id="pollText">轮询: 未启动</span>
+  <!-- 模式切换 -->
+  <div class="mode-switch">
+    <button id="modeAuto" class="mode-btn active" data-mode="auto">⚡ 自动模式</button>
+    <button id="modeCompanion" class="mode-btn" data-mode="companion">👀 陪伴模式</button>
   </div>
+  <div id="modeDesc" class="mode-desc">自动采集：后端下发任务，插件自动执行</div>
 
-  <button id="toggleBtn" class="btn btn-green">连接后端</button>
+  <!-- 自动模式：轮询控制 -->
+  <div id="autoSection">
+    <div class="status-row">
+      <div id="pollDot" class="status-dot dot-red"></div>
+      <span id="pollText">轮询: 未启动</span>
+    </div>
+    <button id="toggleBtn" class="btn btn-green">连接后端</button>
+  </div>
 
   <div class="info">
     后端地址: http://localhost:27788<br>
