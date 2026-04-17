@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "FindJobs 助手",
+  "version": "1.0.0",
+  "description": "FindJobs 岗位采集助手 — 从 Boss 直聘提取岗位数据",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.zhipin.com/*",
+    "https://login.zhipin.com/*",
+    "http://localhost:27788/*",
+    "http://127.0.0.1:27788/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.zhipin.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "FindJobs 助手"
+  }
+}

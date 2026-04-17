@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.routes import jobs, tasks, resumes, ai, browser, config, applications
+from app.routes import jobs, tasks, resumes, ai, browser, config, applications, extension
 
 # 配置日志级别 — app 模块用 DEBUG
 logging.basicConfig(
@@ -24,9 +24,9 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="FindJobs", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="FindJobs", version="0.5.0", lifespan=lifespan)
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,6 +43,7 @@ app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(browser.router, prefix="/api/browser", tags=["browser"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 app.include_router(applications.router, prefix="/api/applications", tags=["applications"])
+app.include_router(extension.router, prefix="/api/extension", tags=["extension"])
 
 @app.get("/api/health")
 async def health():

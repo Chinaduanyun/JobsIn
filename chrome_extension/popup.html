@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 280px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      color: #333;
+    }
+    h3 {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      color: #1a1a1a;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 8px;
+      flex-shrink: 0;
+    }
+    .dot-green { background: #22c55e; }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #eab308; }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 8px 0;
+      margin-top: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      color: white;
+    }
+    .btn-green { background: #22c55e; }
+    .btn-green:hover { background: #16a34a; }
+    .btn-red { background: #ef4444; }
+    .btn-red:hover { background: #dc2626; }
+    .info {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+      font-size: 12px;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+  <h3>🔍 FindJobs 助手</h3>
+
+  <div class="status-row">
+    <div id="statusDot" class="status-dot dot-red"></div>
+    <span id="statusText">检查中...</span>
+  </div>
+
+  <div class="status-row">
+    <div id="pollDot" class="status-dot dot-red"></div>
+    <span id="pollText">轮询: 未启动</span>
+  </div>
+
+  <button id="toggleBtn" class="btn btn-green">连接后端</button>
+
+  <div class="info">
+    后端地址: http://localhost:27788<br>
+    请确保 FindJobs 后端正在运行
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

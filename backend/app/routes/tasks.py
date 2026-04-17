@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.database import get_session
 from app.models import CollectionTask
 from app.services.browser import boss_browser
+from app.services.extension_bridge import extension_bridge
 from app.services.scraper_factory import get_scraper, list_platforms
 
 router = APIRouter()
@@ -56,7 +57,10 @@ async def start_task(task_id: int, session: AsyncSession = Depends(get_session))
     if task.status == "running":
         raise HTTPException(status_code=400, detail="任务已在运行中")
 
-    if not boss_browser.logged_in or not boss_browser.cookies:
+    if not extension_bridge.connected:
+        raise HTTPException(status_code=400, detail="Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
+
+    if not boss_browser.logged_in:
         raise HTTPException(status_code=400, detail="请先登录 Boss 直聘")
 
     scraper = get_scraper(task.platform)

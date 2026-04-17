@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { tasks as tasksApi, browser as browserApi } from '@/lib/api'
+import { tasks as tasksApi, browser as browserApi, extension as extensionApi } from '@/lib/api'
 import type { CollectionTask, BrowserStatus, Platform } from '@/types'
-import { Plus, Play, Square, Trash2, AlertTriangle, Loader2 } from 'lucide-react'
+import { Plus, Play, Square, Trash2, AlertTriangle, Loader2, Puzzle } from 'lucide-react'
 
 const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   pending: { label: '等待中', variant: 'outline' },
@@ -30,6 +30,8 @@ export default function TasksPage() {
   const [form, setForm] = useState({ platform: 'boss', keyword: '', city: '杭州', salary: '' })
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus | null>(null)
+  const [extConnected, setExtConnected] = useState(false)
+  const [extSecurityCheck, setExtSecurityCheck] = useState(false)
   const [error, setError] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -37,9 +39,17 @@ export default function TasksPage() {
     tasksApi.list().then(setTaskList).catch(() => {})
   }
 
+  const refreshStatuses = () => {
+    browserApi.status().then(setBrowserStatus).catch(() => {})
+    extensionApi.status().then(s => {
+      setExtConnected(s.connected)
+      setExtSecurityCheck(s.security_check)
+    }).catch(() => setExtConnected(false))
+  }
+
   useEffect(() => {
     refresh()
-    browserApi.status().then(setBrowserStatus).catch(() => {})
+    refreshStatuses()
     tasksApi.platforms().then(setPlatforms).catch(() => {})
   }, [])
 
@@ -49,7 +59,7 @@ export default function TasksPage() {
     if (hasRunning && !pollRef.current) {
       pollRef.current = setInterval(() => {
         refresh()
-        browserApi.status().then(setBrowserStatus).catch(() => {})
+        refreshStatuses()
       }, 3000)
     } else if (!hasRunning && pollRef.current) {
       clearInterval(pollRef.current)
@@ -105,24 +115,32 @@ export default function TasksPage() {
         </Button>
       </div>
 
-      {/* Browser status warning */}
-      {!browserReady && browserStatus !== null && (
+      {/* Extension status */}
+      {!extConnected && (
+        <Alert className="mb-4">
+          <Puzzle className="h-4 w-4" />
+          <AlertDescription>
+            Chrome 扩展未连接。请在 Chrome 中安装并启用「FindJobs 助手」扩展，详见「系统设置」页面。
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Browser login warning */}
+      {extConnected && !browserStatus?.logged_in && browserStatus !== null && (
         <Alert className="mb-4">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            {!browserStatus?.logged_in
-              ? '未登录，请先到「系统设置」完成登录'
-              : 'Cookies 不可用，请到「系统设置」刷新 Cookies'}
+            未登录，请先到「系统设置」完成 Boss 直聘登录
           </AlertDescription>
         </Alert>
       )}
 
       {/* Security check warning */}
-      {(browserStatus as any)?.security_check && (
+      {extSecurityCheck && (
         <Alert variant="destructive" className="mb-4">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            ⚠️ Boss 直聘安全验证触发！请在弹出的 Chrome 浏览器中完成验证后，采集会自动继续。
+            ⚠️ Boss 直聘安全验证触发！请在 Chrome 浏览器中完成验证后，采集会自动继续。
           </AlertDescription>
         </Alert>
       )}

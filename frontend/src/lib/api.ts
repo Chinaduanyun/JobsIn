@@ -132,3 +132,14 @@ export const applications = {
     request<{ items: any[]; page: number; size: number }>(`/applications?page=${page}`),
   today: () => request<{ count: number }>('/applications/today'),
 }
+
+// ===== Extension =====
+export const extension = {
+  status: () => request<{
+    connected: boolean
+    last_poll: number
+    pending_commands: number
+    waiting_results: number
+    security_check: boolean
+  }>('/extension/status'),
+}

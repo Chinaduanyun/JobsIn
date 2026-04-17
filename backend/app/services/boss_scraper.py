@@ -1,21 +1,18 @@
 from __future__ import annotations
 
-"""Boss直聘岗位采集服务 — Chrome CDP DOM 提取模式
+"""Boss直聘岗位采集服务 — Chrome Extension 模式
 
-使用真实 Chrome + CDP 连接，从渲染后的 DOM 提取岗位数据。
-不注入 stealth（tandem-browser 方案：zhipin 检测 stealth 注入）。
+通过 Chrome Extension 在真实浏览器中提取岗位数据。
+完全无 CDP、无 stealth — Chrome 以 100% 正常模式运行。
+Extension 通过 HTTP 与后端通信，content script 从 DOM 提取数据。
 """
 
-import asyncio
-import json
 import logging
-import random
 import re
-from typing import Optional
 from urllib.parse import quote
 
 from app.services.base_scraper import BaseScraper
-from app.services.browser import boss_browser
+from app.services.extension_bridge import extension_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +33,7 @@ CITY_CODES = {
 
 
 class BossScraper(BaseScraper):
-    """Boss直聘 Chrome CDP 采集器"""
+    """Boss直聘 Chrome Extension 采集器"""
 
     PLATFORM = "boss"
 
@@ -50,22 +47,9 @@ class BossScraper(BaseScraper):
     def get_city_codes(self) -> dict[str, str]:
         return CITY_CODES
 
-    async def _ensure_browser(self) -> bool:
-        """确保 Chrome CDP 浏览器已启动"""
-        if boss_browser.mode == "scrape" and boss_browser.page:
-            return True
-        logger.info("[Boss] 启动 Chrome CDP 采集浏览器...")
-        ok = await boss_browser.launch_scraper()
-        if not ok:
-            logger.error("[Boss] 无法启动采集浏览器")
-        return ok
-
     async def scrape_page(self, keyword: str, city_code: str, salary: str, page: int) -> list[dict]:
-        if not boss_browser.logged_in:
-            logger.warning("Boss: 未登录")
-            return []
-
-        if not await self._ensure_browser():
+        if not extension_bridge.connected:
+            logger.warning("[Boss] Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
             return []
 
         # 构造搜索 URL
@@ -73,101 +57,46 @@ class BossScraper(BaseScraper):
         if salary:
             search_url += f"&salary={salary}"
 
-        logger.info("[Boss] 导航到搜索页: keyword=%s, city=%s, page=%d", keyword, city_code, page)
+        logger.info("[Boss] 通过扩展导航: keyword=%s, city=%s, page=%d", keyword, city_code, page)
         logger.debug("[Boss] URL: %s", search_url)
 
-        # 导航并等待岗位卡片加载
-        ok = await boss_browser.navigate(
-            search_url,
-            wait_selector=".job-card-wrapper, .job-list-box, .search-job-result",
-            timeout=20000,
+        # 发送命令给扩展：导航并提取岗位
+        result = await extension_bridge.send_command(
+            "navigate_and_extract_jobs",
+            url=search_url,
+            timeout=35,
         )
 
-        if not ok:
-            if boss_browser.security_check:
-                logger.error("[Boss] 遇到安全验证，请在浏览器中完成验证后重试")
+        if not result.get("success"):
+            error = result.get("error", "未知错误")
+            if result.get("security_check"):
+                logger.error("[Boss] 遇到安全验证，请在 Chrome 中完成验证后重试")
+            else:
+                logger.error("[Boss] 采集失败: %s", error)
             return []
 
-        # 等待页面充分渲染
-        await asyncio.sleep(random.uniform(1.5, 3.0))
+        data = result.get("data", {})
+        jobs_raw = data.get("jobs", [])
 
-        # 从 DOM 提取岗位数据
-        try:
-            jobs_data = await boss_browser.evaluate("""
-                (() => {
-                    const cards = document.querySelectorAll('.job-card-wrapper, .job-card-box');
-                    if (!cards.length) return [];
-
-                    return Array.from(cards).map(card => {
-                        const nameEl = card.querySelector('.job-name, .job-title');
-                        const areaEl = card.querySelector('.job-area, .job-area-wrapper');
-                        const salaryEl = card.querySelector('.salary');
-                        const companyEl = card.querySelector('.company-name a, .company-name');
-                        const expEl = card.querySelector('.tag-list li:first-child, .job-info .tag-list li:first-child');
-                        const eduEl = card.querySelector('.tag-list li:nth-child(2), .job-info .tag-list li:nth-child(2)');
-                        const hrNameEl = card.querySelector('.info-public em, .boss-name');
-                        const hrTitleEl = card.querySelector('.info-public .name, .boss-title');
-                        const hrOnlineEl = card.querySelector('.boss-online-tag');
-                        const companySizeEl = card.querySelector('.company-tag-list li:last-child');
-                        const companyIndustryEl = card.querySelector('.company-tag-list li:first-child');
-                        const linkEl = card.querySelector('a[href*="job_detail"]');
-                        const skillEls = card.querySelectorAll('.tag-list li, .job-card-footer .tag-list li');
-
-                        // 提取技能标签 (排除经验和学历)
-                        const skills = [];
-                        skillEls.forEach((el, i) => {
-                            if (i >= 2) skills.push(el.textContent.trim());
-                        });
-
-                        return {
-                            title: nameEl ? nameEl.textContent.trim() : '',
-                            city: areaEl ? areaEl.textContent.trim() : '',
-                            salary: salaryEl ? salaryEl.textContent.trim() : '',
-                            company: companyEl ? companyEl.textContent.trim() : '',
-                            experience: expEl ? expEl.textContent.trim() : '',
-                            education: eduEl ? eduEl.textContent.trim() : '',
-                            hr_name: hrNameEl ? hrNameEl.textContent.trim() : '',
-                            hr_title: hrTitleEl ? hrTitleEl.textContent.trim() : '',
-                            hr_active: hrOnlineEl ? '在线' : '',
-                            company_size: companySizeEl ? companySizeEl.textContent.trim() : '',
-                            company_industry: companyIndustryEl ? companyIndustryEl.textContent.trim() : '',
-                            url: linkEl ? linkEl.href : '',
-                            tags: skills.join(','),
-                        };
-                    });
-                })()
-            """)
-        except Exception as e:
-            logger.error("[Boss] DOM 提取失败: %s", e)
+        if not jobs_raw:
+            if data.get("empty"):
+                logger.info("[Boss] 第 %d 页无搜索结果: %s", page, data.get("message", ""))
+            else:
+                logger.warning("[Boss] 第 %d 页未提取到岗位: %s", page, data.get("message", ""))
             return []
 
-        if not jobs_data:
-            # 检查页面状态
-            current_url = boss_browser.page.url if boss_browser.page else ""
-            logger.warning("[Boss] 未提取到岗位卡片, 当前 URL: %s", current_url)
+        logger.info("[Boss] 第 %d 页提取到 %d 个岗位 (卡片总数=%d)",
+                    page, len(jobs_raw), data.get("total_cards", 0))
 
-            # 尝试检查是否有 "没有找到相关职位" 提示
-            try:
-                empty = await boss_browser.evaluate("""
-                    document.querySelector('.job-empty-wrapper, .empty-tips') ? true : false
-                """)
-                if empty:
-                    logger.info("[Boss] 页面显示无更多结果")
-            except Exception:
-                pass
-            return []
-
-        logger.info("[Boss] 第 %d 页从 DOM 提取到 %d 个岗位", page, len(jobs_data))
-
-        result = []
-        for idx, j in enumerate(jobs_data):
+        result_list = []
+        for idx, j in enumerate(jobs_raw):
             if not j.get("title"):
                 continue
 
-            # 提取 encrypt_id from URL
             enc_id = ""
-            if j.get("url"):
-                m = re.search(r'/job_detail/([^.]+)\.html', j["url"])
+            url = j.get("url", "")
+            if url:
+                m = re.search(r'/job_detail/([^.]+)\.html', url)
                 if m:
                     enc_id = m.group(1)
 
@@ -178,7 +107,7 @@ class BossScraper(BaseScraper):
                 "city": j.get("city", ""),
                 "experience": j.get("experience", ""),
                 "education": j.get("education", ""),
-                "url": j.get("url", ""),
+                "url": url,
                 "hr_name": j.get("hr_name", ""),
                 "hr_title": j.get("hr_title", ""),
                 "hr_active": j.get("hr_active", ""),
@@ -193,56 +122,46 @@ class BossScraper(BaseScraper):
                          idx + 1, job_data["title"], job_data["company"],
                          job_data["salary"], job_data["city"])
 
-            result.append(job_data)
+            result_list.append(job_data)
 
-        logger.info("[Boss] 第 %d 页解析到 %d 个有效岗位", page, len(result))
-        return result
+        logger.info("[Boss] 第 %d 页解析到 %d 个有效岗位", page, len(result_list))
+        return result_list
 
     async def fetch_detail(self, job_url: str) -> dict:
-        """从详情页 DOM 获取岗位描述。"""
-        if not job_url or not boss_browser.page:
+        """通过扩展获取岗位详情。"""
+        if not job_url:
             return {}
 
-        logger.debug("[Boss] 导航到详情页: %s", job_url)
+        if not extension_bridge.connected:
+            return {}
 
-        ok = await boss_browser.navigate(
-            job_url,
-            wait_selector=".job-sec-text, .job-detail-section",
-            timeout=15000,
+        logger.debug("[Boss] 通过扩展获取详情: %s", job_url)
+
+        result = await extension_bridge.send_command(
+            "navigate_and_extract_detail",
+            url=job_url,
+            timeout=25,
         )
 
-        if not ok:
-            if boss_browser.security_check:
+        if not result.get("success"):
+            if result.get("security_check"):
                 logger.warning("[Boss] 详情页遇到安全验证")
+            else:
+                logger.warning("[Boss] 详情获取失败: %s", result.get("error", ""))
             return {}
 
-        await asyncio.sleep(random.uniform(0.5, 1.5))
+        data = result.get("data", {})
+        detail = {}
 
-        try:
-            detail = await boss_browser.evaluate("""
-                (() => {
-                    const descEl = document.querySelector('.job-sec-text, .job-detail-section');
-                    const tagEls = document.querySelectorAll('.job-tags .tag-item, .job-keyword-list li');
-                    const sizeEl = document.querySelector('.sider-company p:last-child, .company-info-size');
-                    const industryEl = document.querySelector('.sider-company p:first-child, .company-info-industry');
+        if data.get("description"):
+            detail["description"] = data["description"]
+            logger.debug("[Boss] 详情提取到描述: %d 字符", len(detail["description"]))
 
-                    return {
-                        description: descEl ? descEl.innerText.trim() : '',
-                        tags: Array.from(tagEls).map(el => el.textContent.trim()).join(','),
-                        company_size: sizeEl ? sizeEl.textContent.trim() : '',
-                        company_industry: industryEl ? industryEl.textContent.trim() : '',
-                    };
-                })()
-            """)
+        for key in ("tags", "company_size", "company_industry"):
+            if data.get(key):
+                detail[key] = data[key]
 
-            if detail.get("description"):
-                logger.debug("[Boss] 详情提取到描述: %d 字符", len(detail["description"]))
-
-            return {k: v for k, v in detail.items() if v}
-
-        except Exception as e:
-            logger.warning("[Boss] 详情提取失败 %s: %s", job_url, e)
-            return {}
+        return detail
 
 
 boss_scraper = BossScraper()

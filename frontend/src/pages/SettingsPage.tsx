@@ -5,9 +5,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { config as configApi } from '@/lib/api'
+import { config as configApi, extension as extensionApi } from '@/lib/api'
 import type { SystemConfig } from '@/types'
-import { Save, Info } from 'lucide-react'
+import { Save, Info, Puzzle, CheckCircle, XCircle } from 'lucide-react'
 import BrowserPanel from '@/components/BrowserPanel'
 
 const configFields = [
@@ -27,10 +27,17 @@ export default function SettingsPage() {
   const [cfg, setCfg] = useState<SystemConfig>({})
   const [saved, setSaved] = useState(false)
   const [version, setVersion] = useState('')
+  const [extConnected, setExtConnected] = useState(false)
 
   useEffect(() => {
     configApi.get().then(setCfg).catch(() => {})
     fetch('/api/version').then(r => r.json()).then(d => setVersion(d.version)).catch(() => {})
+    const checkExt = () => {
+      extensionApi.status().then(s => setExtConnected(s.connected)).catch(() => setExtConnected(false))
+    }
+    checkExt()
+    const timer = setInterval(checkExt, 3000)
+    return () => clearInterval(timer)
   }, [])
 
   const handleSave = async () => {
@@ -53,6 +60,38 @@ export default function SettingsPage() {
 
       {/* Browser panel */}
       <BrowserPanel />
+
+      {/* Extension panel */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Puzzle className="h-4 w-4" />
+            Chrome 扩展
+            {extConnected
+              ? <Badge variant="default" className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />已连接</Badge>
+              : <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />未连接</Badge>
+            }
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p className="text-muted-foreground">
+            FindJobs 使用 Chrome 扩展在真实浏览器中采集岗位数据，无自动化痕迹。
+          </p>
+          <div className="bg-muted p-3 rounded-md space-y-2">
+            <p className="font-medium">安装步骤：</p>
+            <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+              <li>打开 Chrome，访问 <code className="bg-background px-1 rounded">chrome://extensions/</code></li>
+              <li>右上角开启「开发者模式」</li>
+              <li>点击「加载已解压的扩展程序」</li>
+              <li>选择项目根目录下的 <code className="bg-background px-1 rounded">chrome_extension</code> 文件夹</li>
+              <li>扩展安装后，此处状态会自动变为「已连接」</li>
+            </ol>
+          </div>
+          {extConnected && (
+            <p className="text-green-600">✅ 扩展已连接，可以开始采集任务。</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* AI Config */}
       <Card>
