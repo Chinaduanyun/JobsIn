@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, func
 
@@ -51,3 +52,19 @@ async def delete_job(job_id: int, session: AsyncSession = Depends(get_session)):
         await session.delete(job)
         await session.commit()
     return {"ok": True}
+
+
+class BatchDeleteRequest(BaseModel):
+    job_ids: list[int]
+
+
+@router.post("/batch-delete")
+async def batch_delete_jobs(data: BatchDeleteRequest, session: AsyncSession = Depends(get_session)):
+    deleted = 0
+    for jid in data.job_ids:
+        job = await session.get(Job, jid)
+        if job:
+            await session.delete(job)
+            deleted += 1
+    await session.commit()
+    return {"deleted": deleted}

@@ -18,7 +18,7 @@ async def get_today_applied() -> int:
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         result = await session.execute(
             select(func.count()).select_from(Application).where(
-                Application.status == "sent",
+                Application.status.in_(["sent", "recorded"]),
                 Application.applied_at >= today_start,
             )
         )
@@ -65,7 +65,7 @@ async def apply_to_job(job_id: int, greeting_text: str | None = None) -> Applica
         application = Application(
             job_id=job.id,
             greeting_text=greeting_text or "",
-            status="sent",
+            status="recorded",  # 仅记录，未实际发送
             applied_at=datetime.now(timezone.utc),
         )
         session.add(application)
@@ -85,7 +85,7 @@ async def batch_apply(job_ids: list[int], greeting_texts: dict[int, str] | None 
         try:
             text = greeting_texts.get(job_id) if greeting_texts else None
             app = await apply_to_job(job_id, text)
-            results.append({"job_id": job_id, "status": "sent", "application_id": app.id})
+            results.append({"job_id": job_id, "status": "recorded", "application_id": app.id})
             logger.info("[批量投递] %d/%d 成功: 岗位 %d", i + 1, len(job_ids), job_id)
         except Exception as e:
             results.append({"job_id": job_id, "status": "failed", "error": str(e)})
@@ -96,6 +96,6 @@ async def batch_apply(job_ids: list[int], greeting_texts: dict[int, str] | None 
             logger.debug("[批量投递] 等待 %.1fs...", delay)
             await asyncio.sleep(delay)
 
-    sent = sum(1 for r in results if r["status"] == "sent")
+    sent = sum(1 for r in results if r["status"] == "recorded")
     logger.info("[批量投递] 完成: %d/%d 成功", sent, len(job_ids))
     return results

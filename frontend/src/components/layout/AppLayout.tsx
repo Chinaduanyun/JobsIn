@@ -1,21 +1,30 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import {
   LayoutDashboard,
   Briefcase,
   ListTodo,
   FileText,
   Settings,
+  Send,
 } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: '仪表盘' },
   { to: '/jobs', icon: Briefcase, label: '岗位列表' },
+  { to: '/applications', icon: Send, label: '投递管理' },
   { to: '/tasks', icon: ListTodo, label: '采集任务' },
   { to: '/resumes', icon: FileText, label: '简历管理' },
   { to: '/settings', icon: Settings, label: '系统设置' },
 ]
 
 export default function AppLayout() {
+  const [version, setVersion] = useState('0.0')
+
+  useEffect(() => {
+    fetch('/api/version').then(r => r.json()).then(d => setVersion(d.version)).catch(() => {})
+  }, [])
+
   return (
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
@@ -44,7 +53,7 @@ export default function AppLayout() {
           ))}
         </nav>
         <div className="p-3 border-t text-xs text-muted-foreground">
-          FindJobs v0.1
+          FindJobs v{version}
         </div>
       </aside>
 

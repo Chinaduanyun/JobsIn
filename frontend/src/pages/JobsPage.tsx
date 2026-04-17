@@ -1,4 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -6,10 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { jobs as jobsApi, applications as appsApi } from '@/lib/api'
 import type { Job, PaginatedResponse } from '@/types'
-import { Search, ChevronLeft, ChevronRight, ExternalLink, CheckSquare, Square, Send, Loader2 } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, ExternalLink, CheckSquare, Square, Send, Loader2, Trash2 } from 'lucide-react'
 import JobDetailDrawer from '@/components/JobDetailDrawer'
 
 export default function JobsPage() {
+  const navigate = useNavigate()
   const [data, setData] = useState<PaginatedResponse<Job>>({
     items: [],
     total: 0,
@@ -51,6 +53,8 @@ export default function JobsPage() {
 
   const handleApply = async (jobId: number, greeting: string) => {
     await appsApi.apply(jobId, greeting)
+    setDrawerOpen(false)
+    navigate('/applications')
   }
 
   const toggleSelect = (id: number, e: React.MouseEvent) => {
@@ -79,11 +83,36 @@ export default function JobsPage() {
       const res = await appsApi.batchApply(Array.from(selectedIds))
       setBatchMsg(`✅ 批量投递已启动：${res.total} 个岗位`)
       setSelectedIds(new Set())
+      // 3 秒后跳转到投递管理页
+      setTimeout(() => navigate('/applications'), 2000)
     } catch (e: any) {
       setBatchMsg(`❌ ${e.message || '批量投递失败'}`)
     }
     setBatchLoading(false)
     setTimeout(() => setBatchMsg(''), 5000)
+  }
+
+  const handleDelete = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm('确定删除这个岗位？')) return
+    try {
+      await jobsApi.delete(id)
+      fetchJobs(page, keyword)
+      selectedIds.delete(id)
+      setSelectedIds(new Set(selectedIds))
+    } catch {}
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return
+    if (!confirm(`确定删除选中的 ${selectedIds.size} 个岗位？`)) return
+    setBatchLoading(true)
+    try {
+      await jobsApi.batchDelete(Array.from(selectedIds))
+    } catch {}
+    setSelectedIds(new Set())
+    fetchJobs(page, keyword)
+    setBatchLoading(false)
   }
 
   const totalPages = Math.ceil(data.total / data.size) || 1
@@ -93,14 +122,20 @@ export default function JobsPage() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">岗位列表</h2>
         {selectedIds.size > 0 && (
-          <Button onClick={handleBatchApply} disabled={batchLoading}>
-            {batchLoading ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4 mr-1" />
-            )}
-            批量投递 ({selectedIds.size})
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="destructive" size="sm" onClick={handleBatchDelete} disabled={batchLoading}>
+              <Trash2 className="h-4 w-4 mr-1" />
+              删除 ({selectedIds.size})
+            </Button>
+            <Button onClick={handleBatchApply} disabled={batchLoading}>
+              {batchLoading ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-1" />
+              )}
+              批量投递 ({selectedIds.size})
+            </Button>
+          </div>
         )}
       </div>
 
@@ -220,6 +255,13 @@ export default function JobsPage() {
                       <ExternalLink className="h-4 w-4" />
                     </a>
                   )}
+                  <button
+                    onClick={(e) => handleDelete(job.id, e)}
+                    className="text-muted-foreground hover:text-red-500 transition-colors"
+                    title="删除"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
               </CardContent>
             </Card>

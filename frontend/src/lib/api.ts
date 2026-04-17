@@ -25,6 +25,11 @@ export const jobs = {
   },
   get: (id: number) => request<import('@/types').Job>(`/jobs/${id}`),
   delete: (id: number) => request<void>(`/jobs/${id}`, { method: 'DELETE' }),
+  batchDelete: (jobIds: number[]) =>
+    request<{ deleted: number }>('/jobs/batch-delete', {
+      method: 'POST',
+      body: JSON.stringify({ job_ids: jobIds }),
+    }),
 }
 
 // ===== Tasks =====
