@@ -161,6 +161,10 @@ class BossScraper(BaseScraper):
             if data.get(key):
                 detail[key] = data[key]
 
+        # 如果详情页有薪资（可能解密成功），也返回
+        if data.get("salary"):
+            detail["salary"] = data["salary"]
+
         return detail
 
 

@@ -1,14 +1,29 @@
-import { useEffect, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import { useEffect, useState, useRef, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { jobs as jobsApi, applications as appsApi } from '@/lib/api'
+import { jobs as jobsApi, applications as appsApi, ai as aiApi } from '@/lib/api'
 import type { Job, PaginatedResponse } from '@/types'
-import { Search, ChevronLeft, ChevronRight, ExternalLink, CheckSquare, Square, Send, Loader2, Trash2 } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, ExternalLink, CheckSquare, Square, Send, Loader2, Trash2, Brain, MessageSquare, Clock } from 'lucide-react'
 import JobDetailDrawer from '@/components/JobDetailDrawer'
+
+function formatTimeAgo(dateStr: string): string {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return '刚刚'
+  if (diffMin < 60) return `${diffMin}分钟前`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour}小时前`
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffDay < 30) return `${diffDay}天前`
+  return date.toLocaleDateString('zh-CN')
+}
 
 export default function JobsPage() {
   const navigate = useNavigate()
@@ -23,8 +38,9 @@ export default function JobsPage() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [batchLoading, setBatchLoading] = useState(false)
+  const [batchLoading, setBatchLoading] = useState('')
   const [batchMsg, setBatchMsg] = useState('')
+  const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchJobs = (p: number, kw: string) => {
     jobsApi.list({ page: p, page_size: 20, keyword: kw || undefined }).then(setData).catch(() => {})
@@ -75,21 +91,72 @@ export default function JobsPage() {
     }
   }
 
+  const pollBatchProgress = (batchId: string, label: string) => {
+    if (batchPollRef.current) clearInterval(batchPollRef.current)
+    batchPollRef.current = setInterval(async () => {
+      try {
+        const status = await aiApi.batchStatus(batchId)
+        setBatchMsg(`⏳ ${label}: ${status.completed}/${status.total} 完成${status.failed ? `, ${status.failed} 失败` : ''}`)
+        if (status.status === 'completed') {
+          if (batchPollRef.current) clearInterval(batchPollRef.current)
+          setBatchMsg(`✅ ${label}完成: ${status.completed}/${status.total}${status.failed ? `, ${status.failed} 失败` : ''}`)
+          setBatchLoading('')
+          fetchJobs(page, keyword)
+          setTimeout(() => setBatchMsg(''), 8000)
+        }
+      } catch {
+        if (batchPollRef.current) clearInterval(batchPollRef.current)
+        setBatchLoading('')
+      }
+    }, 2000)
+  }
+
   const handleBatchApply = async () => {
     if (selectedIds.size === 0) return
-    setBatchLoading(true)
+    setBatchLoading('apply')
     setBatchMsg('')
     try {
       const res = await appsApi.batchApply(Array.from(selectedIds))
       setBatchMsg(`✅ 批量投递已启动：${res.total} 个岗位`)
       setSelectedIds(new Set())
-      // 3 秒后跳转到投递管理页
       setTimeout(() => navigate('/applications'), 2000)
     } catch (e: any) {
       setBatchMsg(`❌ ${e.message || '批量投递失败'}`)
     }
-    setBatchLoading(false)
+    setBatchLoading('')
     setTimeout(() => setBatchMsg(''), 5000)
+  }
+
+  const handleBatchAnalyze = async () => {
+    if (selectedIds.size === 0) return
+    setBatchLoading('analyze')
+    setBatchMsg('')
+    try {
+      const res = await aiApi.batchAnalyze(Array.from(selectedIds))
+      setBatchMsg(`⏳ 批量AI分析已启动: 0/${res.total}`)
+      pollBatchProgress(res.batch_id, '批量AI分析')
+      setSelectedIds(new Set())
+    } catch (e: any) {
+      setBatchMsg(`❌ ${e.message || '批量分析失败'}`)
+      setBatchLoading('')
+      setTimeout(() => setBatchMsg(''), 5000)
+    }
+  }
+
+  const handleBatchGreeting = async () => {
+    if (selectedIds.size === 0) return
+    setBatchLoading('greeting')
+    setBatchMsg('')
+    try {
+      const res = await aiApi.batchGreeting(Array.from(selectedIds))
+      setBatchMsg(`⏳ 批量生成文案已启动: 0/${res.total}`)
+      pollBatchProgress(res.batch_id, '批量文案生成')
+      setSelectedIds(new Set())
+    } catch (e: any) {
+      setBatchMsg(`❌ ${e.message || '批量文案生成失败'}`)
+      setBatchLoading('')
+      setTimeout(() => setBatchMsg(''), 5000)
+    }
   }
 
   const handleDelete = async (id: number, e: React.MouseEvent) => {
@@ -106,13 +173,13 @@ export default function JobsPage() {
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return
     if (!confirm(`确定删除选中的 ${selectedIds.size} 个岗位？`)) return
-    setBatchLoading(true)
+    setBatchLoading('delete')
     try {
       await jobsApi.batchDelete(Array.from(selectedIds))
     } catch {}
     setSelectedIds(new Set())
     fetchJobs(page, keyword)
-    setBatchLoading(false)
+    setBatchLoading('')
   }
 
   const totalPages = Math.ceil(data.total / data.size) || 1
@@ -122,13 +189,29 @@ export default function JobsPage() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">岗位列表</h2>
         {selectedIds.size > 0 && (
-          <div className="flex gap-2">
-            <Button variant="destructive" size="sm" onClick={handleBatchDelete} disabled={batchLoading}>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="destructive" size="sm" onClick={handleBatchDelete} disabled={!!batchLoading}>
               <Trash2 className="h-4 w-4 mr-1" />
               删除 ({selectedIds.size})
             </Button>
-            <Button onClick={handleBatchApply} disabled={batchLoading}>
-              {batchLoading ? (
+            <Button variant="outline" size="sm" onClick={handleBatchAnalyze} disabled={!!batchLoading}>
+              {batchLoading === 'analyze' ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Brain className="h-4 w-4 mr-1" />
+              )}
+              AI分析 ({selectedIds.size})
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleBatchGreeting} disabled={!!batchLoading}>
+              {batchLoading === 'greeting' ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <MessageSquare className="h-4 w-4 mr-1" />
+              )}
+              生成文案 ({selectedIds.size})
+            </Button>
+            <Button size="sm" onClick={handleBatchApply} disabled={!!batchLoading}>
+              {batchLoading === 'apply' ? (
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               ) : (
                 <Send className="h-4 w-4 mr-1" />
@@ -244,24 +327,30 @@ export default function JobsPage() {
                       {job.hr_active && ` (${job.hr_active})`}
                     </span>
                   </div>
-                  {job.url && (
-                    <a
-                      href={job.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-muted-foreground hover:text-foreground"
-                      onClick={(e) => e.stopPropagation()}
+                  <div className="flex items-center gap-3">
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {formatTimeAgo(job.collected_at)}
+                    </span>
+                    {job.url && (
+                      <a
+                        href={job.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    )}
+                    <button
+                      onClick={(e) => handleDelete(job.id, e)}
+                      className="text-muted-foreground hover:text-red-500 transition-colors"
+                      title="删除"
                     >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  )}
-                  <button
-                    onClick={(e) => handleDelete(job.id, e)}
-                    className="text-muted-foreground hover:text-red-500 transition-colors"
-                    title="删除"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </CardContent>
             </Card>

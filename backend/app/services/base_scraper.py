@@ -101,6 +101,11 @@ class BaseScraper(ABC):
                         logger.debug("[%s] 抓取详情 %d/%d: %s",
                                      self.PLATFORM, i + 1, len(jobs), job_data.get("url", ""))
                         detail = await self.fetch_detail(job_data.get("url", ""))
+                        # 如果列表页薪资有乱码（包含私用区字符或问号），用详情页的
+                        list_salary = job_data.get("salary", "")
+                        detail_salary = detail.pop("salary", "")
+                        if detail_salary and (not list_salary or '?' in list_salary or not any(c.isdigit() for c in list_salary)):
+                            job_data["salary"] = detail_salary
                         job_data.update(detail)
                     except Exception as e:
                         logger.warning("[%s] 抓详情失败 %s: %s", self.PLATFORM, job_data.get("url"), e)

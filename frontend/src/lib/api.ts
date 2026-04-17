@@ -85,6 +85,20 @@ export const ai = {
     }),
   getAnalysis: (jobId: number) =>
     request<import('@/types').JobAnalysis>(`/ai/analysis/${jobId}`),
+  batchAnalyze: (jobIds: number[]) =>
+    request<{ batch_id: string; total: number; message: string }>('/ai/batch-analyze', {
+      method: 'POST',
+      body: JSON.stringify({ job_ids: jobIds }),
+    }),
+  batchGreeting: (jobIds: number[]) =>
+    request<{ batch_id: string; total: number; message: string }>('/ai/batch-greeting', {
+      method: 'POST',
+      body: JSON.stringify({ job_ids: jobIds }),
+    }),
+  batchStatus: (batchId: string) =>
+    request<{ total: number; completed: number; failed: number; status: string; errors: string[] }>(
+      `/ai/batch-status/${batchId}`
+    ),
 }
 
 // ===== Browser =====

@@ -3,11 +3,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from sqlmodel import select
 
-from app.database import get_session
+import asyncio
+import logging
+
+from app.database import get_session, async_session
 from app.models import JobAnalysis
 from app.services import ai_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# 批量任务进度追踪
+_batch_progress: dict[str, dict] = {}
 
 
 class AnalyzeRequest(BaseModel):
@@ -16,6 +23,14 @@ class AnalyzeRequest(BaseModel):
 
 class GenerateGreetingRequest(BaseModel):
     job_id: int
+
+
+class BatchAnalyzeRequest(BaseModel):
+    job_ids: list[int]
+
+
+class BatchGreetingRequest(BaseModel):
+    job_ids: list[int]
 
 
 @router.post("/analyze")
@@ -54,3 +69,74 @@ async def get_analysis(job_id: int, session: AsyncSession = Depends(get_session)
     if not analysis:
         raise HTTPException(status_code=404, detail="该岗位尚未进行 AI 分析")
     return analysis
+
+
+@router.post("/batch-analyze")
+async def batch_analyze(data: BatchAnalyzeRequest):
+    """批量异步 AI 分析"""
+    if not data.job_ids:
+        raise HTTPException(status_code=400, detail="请选择要分析的岗位")
+
+    batch_id = f"analyze-{id(data)}"
+    _batch_progress[batch_id] = {
+        "total": len(data.job_ids),
+        "completed": 0,
+        "failed": 0,
+        "status": "running",
+        "errors": [],
+    }
+
+    async def run_batch():
+        progress = _batch_progress[batch_id]
+        for job_id in data.job_ids:
+            try:
+                await ai_service.analyze_job(job_id)
+                progress["completed"] += 1
+            except Exception as e:
+                progress["failed"] += 1
+                progress["errors"].append(f"岗位{job_id}: {str(e)[:50]}")
+                logger.warning("批量分析 job %d 失败: %s", job_id, e)
+        progress["status"] = "completed"
+
+    asyncio.create_task(run_batch())
+    return {"batch_id": batch_id, "total": len(data.job_ids), "message": "批量分析已启动"}
+
+
+@router.post("/batch-greeting")
+async def batch_greeting(data: BatchGreetingRequest):
+    """批量异步生成沟通文案"""
+    if not data.job_ids:
+        raise HTTPException(status_code=400, detail="请选择要生成文案的岗位")
+
+    batch_id = f"greeting-{id(data)}"
+    _batch_progress[batch_id] = {
+        "total": len(data.job_ids),
+        "completed": 0,
+        "failed": 0,
+        "status": "running",
+        "errors": [],
+    }
+
+    async def run_batch():
+        progress = _batch_progress[batch_id]
+        for job_id in data.job_ids:
+            try:
+                await ai_service.generate_greeting(job_id)
+                progress["completed"] += 1
+            except Exception as e:
+                progress["failed"] += 1
+                progress["errors"].append(f"岗位{job_id}: {str(e)[:50]}")
+                logger.warning("批量文案 job %d 失败: %s", job_id, e)
+        progress["status"] = "completed"
+
+    asyncio.create_task(run_batch())
+    return {"batch_id": batch_id, "total": len(data.job_ids), "message": "批量文案生成已启动"}
+
+
+@router.get("/batch-status/{batch_id}")
+async def batch_status(batch_id: str):
+    """查询批量任务进度"""
+    progress = _batch_progress.get(batch_id)
+    if not progress:
+        raise HTTPException(status_code=404, detail="批量任务不存在")
+    return progress
