@@ -77,14 +77,14 @@ export default function JobsPage() {
                     {job.analysis && (
                       <Badge
                         variant={
-                          job.analysis.match_score >= 80
+                          job.analysis.overall_score >= 0.8
                             ? 'default'
-                            : job.analysis.match_score >= 60
+                            : job.analysis.overall_score >= 0.6
                               ? 'secondary'
                               : 'outline'
                         }
                       >
-                        匹配 {job.analysis.match_score}分
+                        匹配 {Math.round(job.analysis.overall_score * 100)}分
                       </Badge>
                     )}
                   </div>
@@ -96,8 +96,8 @@ export default function JobsPage() {
                     <span>{job.experience}</span>
                     <span>{job.education}</span>
                     <span>
-                      HR: {job.boss_name}
-                      {job.boss_active && ` (${job.boss_active})`}
+                      HR: {job.hr_name}
+                      {job.hr_active && ` (${job.hr_active})`}
                     </span>
                   </div>
                   {job.url && (

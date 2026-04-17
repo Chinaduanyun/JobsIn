@@ -19,7 +19,7 @@ const statusMap: Record<string, { label: string; variant: 'default' | 'secondary
 export default function TasksPage() {
   const [taskList, setTaskList] = useState<CollectionTask[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ keyword: '', city: '全国', salary_range: '' })
+  const [form, setForm] = useState({ keyword: '', city: '全国', salary: '' })
 
   const refresh = () => {
     tasksApi.list().then(setTaskList).catch(() => {})
@@ -30,7 +30,7 @@ export default function TasksPage() {
   const handleCreate = async () => {
     if (!form.keyword.trim()) return
     await tasksApi.create(form)
-    setForm({ keyword: '', city: '全国', salary_range: '' })
+    setForm({ keyword: '', city: '全国', salary: '' })
     setShowForm(false)
     refresh()
   }
@@ -84,8 +84,8 @@ export default function TasksPage() {
                 <Label>薪资范围</Label>
                 <Input
                   placeholder="如: 15-25K"
-                  value={form.salary_range}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, salary_range: e.target.value })}
+                  value={form.salary}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, salary: e.target.value })}
                 />
               </div>
             </div>
@@ -118,7 +118,7 @@ export default function TasksPage() {
                       {task.keyword}
                       <span className="text-sm font-normal text-muted-foreground ml-2">
                         {task.city}
-                        {task.salary_range && ` · ${task.salary_range}`}
+                        {task.salary && ` · ${task.salary}`}
                       </span>
                     </CardTitle>
                     <Badge variant={st.variant}>{st.label}</Badge>
@@ -127,7 +127,7 @@ export default function TasksPage() {
                 <CardContent>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">
-                      已采集 {task.collected_count} 个岗位
+                      已采集 {task.total_collected} 个岗位
                     </span>
                     <div className="flex gap-1">
                       {task.status === 'pending' && (

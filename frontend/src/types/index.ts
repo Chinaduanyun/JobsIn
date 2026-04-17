@@ -11,22 +11,23 @@ export interface Job {
   education: string
   description: string
   url: string
-  boss_name: string
-  boss_title: string
-  boss_active: string
+  hr_name: string
+  hr_title: string
+  hr_active: string
   company_size: string
   company_industry: string
-  created_at: string
+  tags: string
+  collected_at: string
   analysis?: JobAnalysis | null
 }
 
 export interface JobAnalysis {
   id: number
   job_id: number
-  match_score: number
-  dimension_scores: Record<string, number>
-  summary: string
+  overall_score: number
+  scores_json: string
   suggestion: string
+  greeting_text: string
   created_at: string
 }
 
@@ -53,11 +54,12 @@ export interface CollectionTask {
   id: number
   keyword: string
   city: string
-  salary_range: string
+  city_code: string
+  salary: string
   status: string
-  collected_count: number
+  total_collected: number
+  max_pages: number
   created_at: string
-  updated_at: string
 }
 
 export interface SystemConfig {

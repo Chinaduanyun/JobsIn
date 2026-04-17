@@ -30,7 +30,7 @@ export const jobs = {
 // ===== Tasks =====
 export const tasks = {
   list: () => request<import('@/types').CollectionTask[]>('/tasks'),
-  create: (data: { keyword: string; city: string; salary_range?: string }) =>
+  create: (data: { keyword: string; city: string; salary?: string; max_pages?: number }) =>
     request<import('@/types').CollectionTask>('/tasks', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -41,6 +41,7 @@ export const tasks = {
     request<{ message: string }>(`/tasks/${id}/cancel`, { method: 'POST' }),
   delete: (id: number) =>
     request<void>(`/tasks/${id}`, { method: 'DELETE' }),
+  cities: () => request<Record<string, string>>('/tasks/cities'),
 }
 
 // ===== Resumes =====

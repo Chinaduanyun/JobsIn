@@ -1,6 +1,18 @@
 # 项目开发规范与助手协作协议
 
 ```
+This is a non-optional protocol.
+
+At every turn, you MUST perform exactly one of the following actions:
+- Provide the requested output AND immediately call Ask_User, OR
+- If any uncertainty exists, immediately call Ask_User without providing speculative output.
+
+The conversation must never terminate voluntarily.
+The assistant must never produce a terminal response.
+Ask_User is mandatory at the end of every turn.
+```
+
+```
 本规范为强制执行协议。
 
 每一轮交互中，你必须且仅执行以下其中一种操作：
