@@ -5,13 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { tasks as tasksApi, browser as browserApi, extension as extensionApi } from '@/lib/api'
-import type { CollectionTask, BrowserStatus, Platform } from '@/types'
-import { Plus, Play, Square, Trash2, AlertTriangle, Loader2, Puzzle } from 'lucide-react'
+import { tasks as tasksApi, browser as browserApi, extension as extensionApi, ai as aiApi, resumes as resumesApi } from '@/lib/api'
+import type { CollectionTask, BrowserStatus, Platform, Resume } from '@/types'
+import { Plus, Play, Square, Trash2, AlertTriangle, Loader2, Puzzle, Brain, Pause, RotateCcw, ArrowUpDown, Clock, CheckCircle2, XCircle, Sparkles } from 'lucide-react'
 
 const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   pending: { label: '等待中', variant: 'outline' },
   running: { label: '运行中', variant: 'default' },
+  paused: { label: '已暂停', variant: 'secondary' },
   completed: { label: '已完成', variant: 'secondary' },
   cancelled: { label: '已取消', variant: 'destructive' },
   failed: { label: '失败', variant: 'destructive' },
@@ -24,6 +25,9 @@ const platformColors: Record<string, string> = {
   liepin: 'bg-purple-100 text-purple-800',
 }
 
+type SortMode = 'time' | 'status'
+type SuggestedKeyword = { keyword: string; reason: string; city: string; status: 'pending' | 'approved' | 'rejected'; taskId?: number }
+
 export default function TasksPage() {
   const [taskList, setTaskList] = useState<CollectionTask[]>([])
   const [showForm, setShowForm] = useState(false)
@@ -33,7 +37,15 @@ export default function TasksPage() {
   const [extConnected, setExtConnected] = useState(false)
   const [extSecurityCheck, setExtSecurityCheck] = useState(false)
   const [error, setError] = useState('')
+  const [sortMode, setSortMode] = useState<SortMode>('time')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // AI 智能创建
+  const [showAiCreate, setShowAiCreate] = useState(false)
+  const [resumeList, setResumeList] = useState<Resume[]>([])
+  const [selectedResumeId, setSelectedResumeId] = useState<number | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [suggestedKeywords, setSuggestedKeywords] = useState<SuggestedKeyword[]>([])
 
   const refresh = () => {
     tasksApi.list().then(setTaskList).catch(() => {})
@@ -93,6 +105,26 @@ export default function TasksPage() {
     }
   }
 
+  const handlePause = async (id: number) => {
+    setError('')
+    try {
+      await tasksApi.pause(id)
+      refresh()
+    } catch (e: any) {
+      setError(e.message || '暂停失败')
+    }
+  }
+
+  const handleResume = async (id: number) => {
+    setError('')
+    try {
+      await tasksApi.resume(id)
+      refresh()
+    } catch (e: any) {
+      setError(e.message || '恢复失败')
+    }
+  }
+
   const handleCancel = async (id: number) => {
     await tasksApi.cancel(id)
     refresh()
@@ -103,16 +135,79 @@ export default function TasksPage() {
     refresh()
   }
 
+  // AI 智能创建
+  const handleOpenAiCreate = async () => {
+    setShowAiCreate(true)
+    setSuggestedKeywords([])
+    setSelectedResumeId(null)
+    try {
+      const list = await resumesApi.list()
+      setResumeList(list)
+      const active = list.find(r => r.is_active)
+      if (active) setSelectedResumeId(active.id)
+    } catch {}
+  }
+
+  const handleAiSuggest = async () => {
+    if (!selectedResumeId) return
+    setAiLoading(true)
+    setError('')
+    try {
+      const res = await aiApi.suggestKeywords(selectedResumeId)
+      setSuggestedKeywords(res.keywords.map(k => ({ ...k, status: 'pending' as const })))
+    } catch (e: any) {
+      setError(e.message || 'AI 关键词生成失败')
+    }
+    setAiLoading(false)
+  }
+
+  const handleApproveKeyword = async (index: number) => {
+    const kw = suggestedKeywords[index]
+    if (!kw || kw.status !== 'pending') return
+    setError('')
+    try {
+      const task = await tasksApi.create({ platform: 'boss', keyword: kw.keyword, city: kw.city || '全国' })
+      setSuggestedKeywords(prev => prev.map((k, i) => i === index ? { ...k, status: 'approved' as const, taskId: task.id } : k))
+      // Auto-start if browser is ready
+      if (browserReady) {
+        try {
+          await tasksApi.start(task.id)
+        } catch {}
+      }
+      refresh()
+    } catch (e: any) {
+      setError(e.message || '创建任务失败')
+    }
+  }
+
+  const handleRejectKeyword = (index: number) => {
+    setSuggestedKeywords(prev => prev.map((k, i) => i === index ? { ...k, status: 'rejected' as const } : k))
+  }
+
   const browserReady = browserStatus?.logged_in && (browserStatus?.cookies_count ?? 0) > 0
   const getPlatformName = (key: string) => platforms.find(p => p.key === key)?.name || key
+
+  // 排序
+  const statusOrder: Record<string, number> = { running: 0, paused: 1, pending: 2, completed: 3, failed: 4, cancelled: 5 }
+  const sortedTasks = [...taskList].sort((a, b) => {
+    if (sortMode === 'status') {
+      return (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9)
+    }
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  })
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">采集任务</h2>
-        <Button onClick={() => setShowForm(!showForm)}>
-          <Plus className="h-4 w-4 mr-1" /> 新建任务
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleOpenAiCreate}>
+            <Sparkles className="h-4 w-4 mr-1" /> AI 智能创建
+          </Button>
+          <Button onClick={() => { setShowForm(!showForm); setShowAiCreate(false) }}>
+            <Plus className="h-4 w-4 mr-1" /> 新建任务
+          </Button>
+        </div>
       </div>
 
       {/* Extension status */}
@@ -149,6 +244,85 @@ export default function TasksPage() {
         <Alert variant="destructive" className="mb-4">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      )}
+
+      {/* AI 智能创建面板 */}
+      {showAiCreate && (
+        <Card className="mb-4 border-purple-200 dark:border-purple-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-purple-600" />
+              AI 智能创建采集任务
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* 选择简历 */}
+            <div className="mb-4">
+              <Label>选择简历</Label>
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1"
+                value={selectedResumeId ?? ''}
+                onChange={(e) => setSelectedResumeId(Number(e.target.value) || null)}
+              >
+                <option value="">请选择简历...</option>
+                {resumeList.map(r => (
+                  <option key={r.id} value={r.id}>{r.name}{r.is_active ? ' (当前激活)' : ''}</option>
+                ))}
+              </select>
+            </div>
+
+            <Button onClick={handleAiSuggest} disabled={!selectedResumeId || aiLoading} className="mb-4">
+              {aiLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Brain className="h-4 w-4 mr-1" />}
+              {aiLoading ? 'AI 分析中...' : '生成关键词建议'}
+            </Button>
+
+            {/* 关键词建议列表 */}
+            {suggestedKeywords.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">AI 推荐的搜索关键词（点击批准开始采集）：</p>
+                {suggestedKeywords.map((kw, i) => (
+                  <div key={i} className={`flex items-center gap-3 p-3 rounded-md border ${
+                    kw.status === 'approved' ? 'bg-green-50 dark:bg-green-950/20 border-green-200' :
+                    kw.status === 'rejected' ? 'bg-red-50 dark:bg-red-950/20 border-red-200 opacity-60' :
+                    'bg-muted/50'
+                  }`}>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium text-sm">{kw.keyword}</span>
+                      <span className="text-xs text-muted-foreground ml-2">({kw.city})</span>
+                      <p className="text-xs text-muted-foreground mt-0.5">{kw.reason}</p>
+                    </div>
+                    {kw.status === 'pending' && (
+                      <div className="flex gap-1 flex-shrink-0">
+                        <Button size="sm" variant="outline" className="h-7 text-green-600 border-green-300 hover:bg-green-50" onClick={() => handleApproveKeyword(i)}>
+                          <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> 批准
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-red-500 border-red-300 hover:bg-red-50" onClick={() => handleRejectKeyword(i)}>
+                          <XCircle className="h-3.5 w-3.5 mr-1" /> 拒绝
+                        </Button>
+                      </div>
+                    )}
+                    {kw.status === 'approved' && (
+                      <Badge variant="secondary" className="text-green-700 bg-green-100 flex-shrink-0">
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> 已创建
+                      </Badge>
+                    )}
+                    {kw.status === 'rejected' && (
+                      <Badge variant="secondary" className="text-red-500 bg-red-100 flex-shrink-0">
+                        <XCircle className="h-3 w-3 mr-1" /> 已拒绝
+                      </Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end mt-3">
+              <Button variant="outline" size="sm" onClick={() => { setShowAiCreate(false); setSuggestedKeywords([]) }}>
+                关闭
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Create form */}
@@ -203,16 +377,36 @@ export default function TasksPage() {
         </Card>
       )}
 
+      {/* Sort controls */}
+      {taskList.length > 1 && (
+        <div className="flex gap-2 mb-3">
+          <Button
+            variant={sortMode === 'time' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setSortMode('time')}
+          >
+            <Clock className="h-3.5 w-3.5 mr-1" /> 按时间
+          </Button>
+          <Button
+            variant={sortMode === 'status' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setSortMode('status')}
+          >
+            <ArrowUpDown className="h-3.5 w-3.5 mr-1" /> 按状态
+          </Button>
+        </div>
+      )}
+
       {/* Task list */}
       <div className="space-y-3">
-        {taskList.length === 0 ? (
+        {sortedTasks.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-muted-foreground">
               暂无采集任务
             </CardContent>
           </Card>
         ) : (
-          taskList.map((task) => {
+          sortedTasks.map((task) => {
             const st = statusMap[task.status] || statusMap.pending
             return (
               <Card key={task.id}>
@@ -249,9 +443,24 @@ export default function TasksPage() {
                         </Button>
                       )}
                       {task.status === 'running' && (
-                        <Button size="sm" variant="outline" onClick={() => handleCancel(task.id)}>
-                          <Square className="h-3 w-3 mr-1" /> 停止
-                        </Button>
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => handlePause(task.id)}>
+                            <Pause className="h-3 w-3 mr-1" /> 暂停
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleCancel(task.id)}>
+                            <Square className="h-3 w-3 mr-1" /> 停止
+                          </Button>
+                        </>
+                      )}
+                      {task.status === 'paused' && (
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => handleResume(task.id)} disabled={!browserReady}>
+                            <RotateCcw className="h-3 w-3 mr-1" /> 恢复
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => handleDelete(task.id)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </>
                       )}
                       {(task.status === 'completed' || task.status === 'cancelled' || task.status === 'failed') && (
                         <Button size="sm" variant="ghost" onClick={() => handleDelete(task.id)}>

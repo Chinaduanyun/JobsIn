@@ -7,11 +7,13 @@ import {
   FileText,
   Settings,
   Send,
+  Star,
 } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: '仪表盘' },
   { to: '/jobs', icon: Briefcase, label: '岗位列表' },
+  { to: '/recommendations', icon: Star, label: 'AI 推荐' },
   { to: '/applications', icon: Send, label: '投递管理' },
   { to: '/tasks', icon: ListTodo, label: '采集任务' },
   { to: '/resumes', icon: FileText, label: '简历管理' },

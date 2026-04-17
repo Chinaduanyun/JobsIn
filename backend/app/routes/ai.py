@@ -165,3 +165,19 @@ async def batch_status(batch_id: str):
     if not progress:
         raise HTTPException(status_code=404, detail="批量任务不存在")
     return progress
+
+
+class SuggestKeywordsRequest(BaseModel):
+    resume_id: int
+
+
+@router.post("/suggest-keywords")
+async def suggest_keywords(data: SuggestKeywordsRequest):
+    """AI 根据简历生成搜索关键词建议"""
+    try:
+        keywords = await ai_service.suggest_keywords(data.resume_id)
+        return {"keywords": keywords}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"关键词生成失败: {e}")

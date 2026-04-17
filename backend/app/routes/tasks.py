@@ -80,6 +80,38 @@ async def cancel_task(task_id: int, session: AsyncSession = Depends(get_session)
     return {"message": "任务已取消"}
 
 
+@router.post("/{task_id}/pause")
+async def pause_task(task_id: int, session: AsyncSession = Depends(get_session)):
+    task = await session.get(CollectionTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.status != "running":
+        raise HTTPException(status_code=400, detail="只有运行中的任务可以暂停")
+    scraper = get_scraper(task.platform)
+    await scraper.cancel_task(task_id)
+    task.status = "paused"
+    await session.commit()
+    return {"message": "任务已暂停"}
+
+
+@router.post("/{task_id}/resume")
+async def resume_task(task_id: int, session: AsyncSession = Depends(get_session)):
+    task = await session.get(CollectionTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.status != "paused":
+        raise HTTPException(status_code=400, detail="只有已暂停的任务可以恢复")
+
+    if not extension_bridge.connected:
+        raise HTTPException(status_code=400, detail="Chrome 扩展未连接")
+    if not boss_browser.logged_in:
+        raise HTTPException(status_code=400, detail="请先登录 Boss 直聘")
+
+    scraper = get_scraper(task.platform)
+    asyncio.create_task(scraper.run_task(task_id))
+    return {"message": "任务已恢复运行"}
+
+
 @router.delete("/{task_id}")
 async def delete_task(task_id: int, session: AsyncSession = Depends(get_session)):
     task = await session.get(CollectionTask, task_id)

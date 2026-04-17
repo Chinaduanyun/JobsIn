@@ -23,6 +23,14 @@ export const jobs = {
       `/jobs?${q}`
     )
   },
+  listRecommendations: (params?: { page?: number; page_size?: number }) => {
+    const q = new URLSearchParams()
+    if (params?.page) q.set('page', String(params.page))
+    if (params?.page_size) q.set('size', String(params.page_size))
+    return request<import('@/types').PaginatedResponse<import('@/types').Job>>(
+      `/jobs/recommendations?${q}`
+    )
+  },
   get: (id: number) => request<import('@/types').Job>(`/jobs/${id}`),
   delete: (id: number) => request<void>(`/jobs/${id}`, { method: 'DELETE' }),
   batchDelete: (jobIds: number[]) =>
@@ -44,6 +52,10 @@ export const tasks = {
     request<{ message: string }>(`/tasks/${id}/start`, { method: 'POST' }),
   cancel: (id: number) =>
     request<{ message: string }>(`/tasks/${id}/cancel`, { method: 'POST' }),
+  pause: (id: number) =>
+    request<{ message: string }>(`/tasks/${id}/pause`, { method: 'POST' }),
+  resume: (id: number) =>
+    request<{ message: string }>(`/tasks/${id}/resume`, { method: 'POST' }),
   delete: (id: number) =>
     request<void>(`/tasks/${id}`, { method: 'DELETE' }),
   cities: (platform = 'boss') => request<Record<string, string>>(`/tasks/cities?platform=${platform}`),
@@ -99,6 +111,11 @@ export const ai = {
     request<{ total: number; completed: number; failed: number; status: string; errors: string[] }>(
       `/ai/batch-status/${batchId}`
     ),
+  suggestKeywords: (resumeId: number) =>
+    request<{ keywords: Array<{ keyword: string; reason: string; city: string }> }>('/ai/suggest-keywords', {
+      method: 'POST',
+      body: JSON.stringify({ resume_id: resumeId }),
+    }),
 }
 
 // ===== Browser =====

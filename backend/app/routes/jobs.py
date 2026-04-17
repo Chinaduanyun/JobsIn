@@ -112,6 +112,84 @@ async def delete_job(job_id: int, session: AsyncSession = Depends(get_session)):
     return {"ok": True}
 
 
+@router.get("/recommendations")
+async def list_recommendations(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+):
+    """AI 推荐列表：只返回有分析结果的岗位，按 overall_score 降序"""
+    from sqlalchemy import desc
+
+    # 子查询：每个 job 的最新 analysis id
+    latest_analysis = (
+        select(
+            JobAnalysis.job_id,
+            func.max(JobAnalysis.id).label("latest_id"),
+        )
+        .group_by(JobAnalysis.job_id)
+        .subquery()
+    )
+
+    # 联合查询 Job + 最新 JobAnalysis，按 score 降序
+    stmt = (
+        select(Job, JobAnalysis)
+        .join(latest_analysis, Job.id == latest_analysis.c.job_id)
+        .join(JobAnalysis, JobAnalysis.id == latest_analysis.c.latest_id)
+        .order_by(desc(JobAnalysis.overall_score))
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    result = await session.execute(stmt)
+    rows = result.all()
+
+    # 总数
+    count_stmt = (
+        select(func.count())
+        .select_from(Job)
+        .where(Job.id.in_(select(JobAnalysis.job_id).distinct()))
+    )
+    total = (await session.execute(count_stmt)).scalar()
+
+    # 批量查投递状态
+    job_ids = [j.id for j, _ in rows]
+    app_map: dict[int, str] = {}
+    for jid in job_ids:
+        app_stmt = (
+            select(Application)
+            .where(Application.job_id == jid)
+            .order_by(Application.created_at.desc())
+            .limit(1)
+        )
+        app = (await session.execute(app_stmt)).scalar_one_or_none()
+        if app:
+            app_map[jid] = app.status
+
+    items = []
+    for j, analysis in rows:
+        d = {
+            "id": j.id, "task_id": j.task_id, "platform": j.platform,
+            "title": j.title, "company": j.company, "salary": j.salary,
+            "city": j.city, "experience": j.experience, "education": j.education,
+            "description": j.description, "url": j.url,
+            "hr_name": j.hr_name, "hr_title": j.hr_title, "hr_active": j.hr_active,
+            "company_size": j.company_size, "company_industry": j.company_industry,
+            "tags": j.tags, "collected_at": j.collected_at.isoformat() if j.collected_at else "",
+            "analysis": {
+                "id": analysis.id, "job_id": analysis.job_id,
+                "overall_score": analysis.overall_score,
+                "scores_json": analysis.scores_json,
+                "suggestion": analysis.suggestion,
+                "greeting_text": analysis.greeting_text,
+                "created_at": analysis.created_at.isoformat() if analysis.created_at else "",
+            },
+            "apply_status": app_map.get(j.id),
+        }
+        items.append(d)
+
+    return {"items": items, "total": total, "page": page, "size": size}
+
+
 class BatchDeleteRequest(BaseModel):
     job_ids: list[int]
 

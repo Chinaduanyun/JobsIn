@@ -69,6 +69,37 @@ GREETING_PROMPT = """\
 5. 直接输出打招呼的文字，不要包含任何引号或其他格式
 """
 
+KEYWORDS_PROMPT = """\
+你是一位资深的职业顾问和招聘专家。请根据以下求职者简历，从多个角度分析并生成适合在招聘网站上搜索的关键词列表。
+
+## 求职者简历
+{resume}
+
+请从以下多个维度生成搜索关键词：
+1. 直接岗位名称（如：Python开发工程师、后端开发）
+2. 技术栈关键词（如：Java开发、React前端）
+3. 行业+岗位组合（如：金融科技开发、电商后端）
+4. 更广泛/高级的岗位（如：全栈工程师、技术负责人）
+5. 求职者可能感兴趣的相关岗位
+
+请严格按以下 JSON 格式返回（不要包含其他文字）：
+{{
+  "keywords": [
+    {{
+      "keyword": "搜索关键词",
+      "reason": "为什么推荐这个关键词，15字以内",
+      "city": "推荐城市（根据简历推断，如不确定写'全国'）"
+    }}
+  ]
+}}
+
+要求：
+- 生成 8-15 个关键词
+- 关键词要具体、实用，能在招聘网站上搜出结果
+- 不要生成太宽泛的词（如"工程师"）
+- 每个关键词搭配推荐城市
+"""
+
 
 async def _get_ai_config() -> dict:
     """从数据库读取 AI 配置"""
@@ -211,3 +242,16 @@ async def generate_greeting(job_id: int) -> str:
         await session.commit()
 
         return greeting
+
+
+async def suggest_keywords(resume_id: int) -> list[dict]:
+    """根据简历内容生成搜索关键词建议"""
+    async with async_session() as session:
+        resume = await session.get(Resume, resume_id)
+        if not resume:
+            raise ValueError(f"简历 {resume_id} 不存在")
+
+        prompt = KEYWORDS_PROMPT.format(resume=resume.content[:4000])
+        raw = await _chat(prompt)
+        parsed = _parse_analysis_json(raw)
+        return parsed.get("keywords", [])
