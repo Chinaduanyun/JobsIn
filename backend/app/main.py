@@ -32,12 +32,11 @@ app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(browser.router, prefix="/api/browser", tags=["browser"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
+
 # 前端静态文件（生产模式）
 frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
-
-
-@app.get("/api/health")
-async def health():
-    return {"status": "ok"}

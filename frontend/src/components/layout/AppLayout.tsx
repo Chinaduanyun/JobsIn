@@ -1,0 +1,59 @@
+import { NavLink, Outlet } from 'react-router-dom'
+import {
+  LayoutDashboard,
+  Briefcase,
+  ListTodo,
+  FileText,
+  Settings,
+} from 'lucide-react'
+
+const navItems = [
+  { to: '/', icon: LayoutDashboard, label: '仪表盘' },
+  { to: '/jobs', icon: Briefcase, label: '岗位列表' },
+  { to: '/tasks', icon: ListTodo, label: '采集任务' },
+  { to: '/resumes', icon: FileText, label: '简历管理' },
+  { to: '/settings', icon: Settings, label: '系统设置' },
+]
+
+export default function AppLayout() {
+  return (
+    <div className="flex h-screen bg-background">
+      {/* Sidebar */}
+      <aside className="w-56 border-r bg-muted/30 flex flex-col">
+        <div className="p-4 border-b">
+          <h1 className="text-lg font-bold">🔍 FindJobs</h1>
+          <p className="text-xs text-muted-foreground">Boss直聘智能投递</p>
+        </div>
+        <nav className="flex-1 p-2 space-y-1">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                  isActive
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted text-muted-foreground'
+                }`
+              }
+            >
+              <item.icon className="h-4 w-4" />
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="p-3 border-t text-xs text-muted-foreground">
+          FindJobs v0.1
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main className="flex-1 overflow-auto">
+        <div className="p-6">
+          <Outlet />
+        </div>
+      </main>
+    </div>
+  )
+}
