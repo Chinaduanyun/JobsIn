@@ -78,10 +78,17 @@ export const ai = {
 
 // ===== Browser =====
 export const browser = {
-  launch: () =>
-    request<{ message: string }>('/browser/launch', { method: 'POST' }),
+  launch: (headless = true) =>
+    request<{ message: string } & import('@/types').BrowserStatus>(
+      `/browser/launch?headless=${headless}`,
+      { method: 'POST' }
+    ),
+  login: () =>
+    request<{ message: string; qrcode: string | null }>('/browser/login', {
+      method: 'POST',
+    }),
   status: () => request<import('@/types').BrowserStatus>('/browser/status'),
-  qrcode: () => request<{ qrcode: string }>('/browser/qrcode'),
+  qrcode: () => request<{ qrcode: string | null }>('/browser/qrcode'),
   close: () =>
     request<{ message: string }>('/browser/close', { method: 'POST' }),
 }
