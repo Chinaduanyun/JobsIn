@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
-from app.routes import jobs, tasks, resumes, ai, browser, config
+from app.routes import jobs, tasks, resumes, ai, browser, config, applications
 
 
 @asynccontextmanager
@@ -31,6 +31,7 @@ app.include_router(resumes.router, prefix="/api/resumes", tags=["resumes"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(browser.router, prefix="/api/browser", tags=["browser"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
+app.include_router(applications.router, prefix="/api/applications", tags=["applications"])
 
 @app.get("/api/health")
 async def health():

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { jobs as jobsApi } from '@/lib/api'
+import { jobs as jobsApi, applications as appsApi } from '@/lib/api'
 import type { Job, PaginatedResponse } from '@/types'
 import { Search, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react'
 import JobDetailDrawer from '@/components/JobDetailDrawer'
@@ -44,6 +44,10 @@ export default function JobsPage() {
       setSelectedJob(job)
     }
     setDrawerOpen(true)
+  }
+
+  const handleApply = async (jobId: number, greeting: string) => {
+    await appsApi.apply(jobId, greeting)
   }
 
   const totalPages = Math.ceil(data.total / data.size) || 1
@@ -173,6 +177,7 @@ export default function JobsPage() {
         job={selectedJob}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        onApply={handleApply}
       />
     </div>
   )

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Briefcase, ListTodo, FileText, Send } from 'lucide-react'
-import { jobs, tasks, resumes } from '@/lib/api'
+import { jobs, tasks, resumes, applications } from '@/lib/api'
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -16,12 +16,13 @@ export default function DashboardPage() {
       jobs.list({ page: 1, page_size: 1 }),
       tasks.list(),
       resumes.list(),
-    ]).then(([jobRes, taskList, resumeList]) => {
+      applications.today(),
+    ]).then(([jobRes, taskList, resumeList, todayRes]) => {
       setStats({
         totalJobs: jobRes.total,
         activeTasks: taskList.filter((t) => t.status === 'running').length,
         hasResume: resumeList.some((r) => r.is_active),
-        appliedToday: 0,
+        appliedToday: todayRes.count,
       })
     }).catch(() => {})
   }, [])

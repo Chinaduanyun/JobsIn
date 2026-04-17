@@ -107,3 +107,15 @@ export const config = {
       body: JSON.stringify(data),
     }),
 }
+
+// ===== Applications =====
+export const applications = {
+  apply: (jobId: number, greetingText?: string) =>
+    request<import('@/types').Application>('/applications/apply', {
+      method: 'POST',
+      body: JSON.stringify({ job_id: jobId, greeting_text: greetingText }),
+    }),
+  list: (page = 1) =>
+    request<{ items: any[]; page: number; size: number }>(`/applications?page=${page}`),
+  today: () => request<{ count: number }>('/applications/today'),
+}
