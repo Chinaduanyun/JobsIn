@@ -70,7 +70,7 @@ class BossBrowser:
 
     @property
     def launched(self) -> bool:
-        return self._browser is not None and self._browser.is_connected()
+        return self._context is not None
 
     @property
     def logged_in(self) -> bool:
@@ -95,40 +95,17 @@ class BossBrowser:
 
         # 策略: 优先用系统 Chrome，退而用 Playwright Chromium
         chrome_path = _detect_system_chrome()
+        user_data_dir = str(AUTH_DIR / "chrome_profile")
+        Path(user_data_dir).mkdir(parents=True, exist_ok=True)
 
-        # 用系统 Chrome 时需要独立 user-data-dir，避免和用户浏览器冲突
-        user_data_dir = AUTH_DIR / "chrome_profile"
-        user_data_dir.mkdir(parents=True, exist_ok=True)
-
-        launch_kwargs = {
+        # persistent context 参数（合并 launch + context）
+        ctx_kwargs = {
             "headless": headless,
-            "args": LAUNCH_ARGS + [f"--user-data-dir={user_data_dir}"],
-        }
-
-        # 尝试按优先级启动
-        for strategy, kwargs in [
-            ("系统 Chrome", {**launch_kwargs, "executable_path": chrome_path} if chrome_path else None),
-            ("channel=chrome", {**launch_kwargs, "channel": "chrome"}),
-            ("Playwright Chromium", launch_kwargs),
-        ]:
-            if kwargs is None:
-                continue
-            try:
-                self._browser = await self._playwright.chromium.launch(**kwargs)
-                logger.info("使用 %s 启动成功", strategy)
-                break
-            except Exception as e:
-                logger.warning("%s 启动失败: %s", strategy, e)
-                self._browser = None
-
-        if self._browser is None:
-            raise RuntimeError("所有浏览器启动策略均失败")
-
-        context_opts: dict = {
+            "args": LAUNCH_ARGS,
             "user_agent": get_random_user_agent(),
             "locale": "zh-CN",
             "timezone_id": "Asia/Shanghai",
-            "viewport": None,  # 不固定 viewport，避免指纹检测
+            "viewport": None,
             "bypass_csp": True,
             "ignore_https_errors": True,
         }
@@ -136,16 +113,42 @@ class BossBrowser:
         # 尝试加载已有的 auth state
         if AUTH_FILE.exists():
             try:
-                context_opts["storage_state"] = str(AUTH_FILE)
+                ctx_kwargs["storage_state"] = str(AUTH_FILE)
                 logger.info("加载已有登录状态")
             except Exception:
                 logger.warning("登录状态文件损坏，忽略")
 
-        self._context = await self._browser.new_context(**context_opts)
+        # 尝试按优先级启动 (persistent context = 更真实的浏览器配置)
+        strategies = []
+        if chrome_path:
+            strategies.append(("系统 Chrome", {"executable_path": chrome_path}))
+        strategies.append(("channel=chrome", {"channel": "chrome"}))
+        strategies.append(("Playwright Chromium", {}))
+
+        for strategy, extra_kwargs in strategies:
+            try:
+                merged = {**ctx_kwargs, **extra_kwargs}
+                self._context = await self._playwright.chromium.launch_persistent_context(
+                    user_data_dir, **merged
+                )
+                # persistent context 直接返回 context，browser 通过 context 获取
+                self._browser = self._context.browser
+                logger.info("使用 %s 启动成功 (persistent context)", strategy)
+                break
+            except Exception as e:
+                logger.warning("%s 启动失败: %s", strategy, e)
+                self._context = None
+                self._browser = None
+
+        if self._context is None:
+            raise RuntimeError("所有浏览器启动策略均失败")
+
         # 注入反检测脚本到每一个新页面
         await self._context.add_init_script(STEALTH_JS)
 
-        self._page = await self._context.new_page()
+        # persistent context 自带一个 page，如果没有则新建
+        pages = self._context.pages
+        self._page = pages[0] if pages else await self._context.new_page()
         self._headless = headless
         logger.info("浏览器启动成功 (headless=%s)", headless)
 
@@ -322,24 +325,16 @@ class BossBrowser:
         """关闭浏览器，释放资源"""
         if self._logged_in and self._context:
             await self._save_auth()
-        if self._page:
-            try:
-                await self._page.close()
-            except Exception:
-                pass
-            self._page = None
+        # persistent context: 关闭 context 就等于关闭 browser
+        # 不需要单独关闭 page（context.close 会处理）
+        self._page = None
         if self._context:
             try:
                 await self._context.close()
             except Exception:
                 pass
             self._context = None
-        if self._browser:
-            try:
-                await self._browser.close()
-            except Exception:
-                pass
-            self._browser = None
+        self._browser = None
         if self._playwright:
             try:
                 await self._playwright.stop()
