@@ -84,22 +84,16 @@ export const ai = {
 
 // ===== Browser =====
 export const browser = {
-  launch: (headless = true) =>
-    request<{ message: string } & import('@/types').BrowserStatus>(
-      `/browser/launch?headless=${headless}`,
-      { method: 'POST' }
-    ),
-  restart: (headless = true) =>
-    request<{ message: string } & import('@/types').BrowserStatus>(
-      `/browser/restart?headless=${headless}`,
-      { method: 'POST' }
-    ),
   openLogin: () =>
     request<{ message: string; url: string }>('/browser/open-login', {
       method: 'POST',
     }),
   confirmLogin: () =>
     request<{ message: string } & import('@/types').BrowserStatus>('/browser/confirm-login', {
+      method: 'POST',
+    }),
+  refreshCookies: () =>
+    request<{ message: string } & import('@/types').BrowserStatus>('/browser/refresh-cookies', {
       method: 'POST',
     }),
   status: () => request<import('@/types').BrowserStatus>('/browser/status'),

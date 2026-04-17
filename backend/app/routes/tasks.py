@@ -56,10 +56,8 @@ async def start_task(task_id: int, session: AsyncSession = Depends(get_session))
     if task.status == "running":
         raise HTTPException(status_code=400, detail="任务已在运行中")
 
-    if not boss_browser.launched:
-        raise HTTPException(status_code=400, detail="请先启动浏览器")
-    if not boss_browser.logged_in:
-        raise HTTPException(status_code=400, detail="请先扫码登录")
+    if not boss_browser.logged_in or not boss_browser.cookies:
+        raise HTTPException(status_code=400, detail="请先登录 Boss 直聘")
 
     scraper = get_scraper(task.platform)
     asyncio.create_task(scraper.run_task(task_id))

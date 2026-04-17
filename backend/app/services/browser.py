@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-"""浏览器管理 — 双模式: 登录用纯 Chrome，采集用 CDP 连接
+"""浏览器管理 — 双模式: 登录用纯 Chrome，采集用 HTTP + cookies
 
-核心策略:
-  zhipin.com 会检测 CDP (Chrome DevTools Protocol) 连接。
-  只要 Playwright 通过 CDP 连接了 Chrome，页面就会被检测到并跳白屏。
+核心策略 (经 test1-test4 验证):
+  1. zhipin.com 会检测 CDP 连接 → 浏览器采集不可行
+  2. 纯 Chrome (无 CDP) 可以正常访问 → 用于登录
+  3. CDP headless 可以导出 cookies → 短暂连接导出后断开
+  4. httpx + cookies 可以正常调用 API → 用于采集
 
-  因此分两阶段:
-  1. 登录阶段: subprocess 启动纯 Chrome（无 --remote-debugging-port），
-     就像用户手动双击 Chrome 一样，完全不可被检测。
-     用户在这个纯 Chrome 里登录，cookies 保存在 user-data-dir 中。
-  2. 采集阶段: 关闭纯 Chrome → 重新启动带 CDP 端口的 Chrome →
-     Playwright connect_over_cdp → 用 cookies 直接采集。
-     （采集页面的反检测没有登录页那么严格）
+流程:
+  登录 → subprocess 纯 Chrome → 用户手动扫码
+  导出 → headless CDP 短暂连接 → 导出 cookies → 断开
+  采集 → httpx + cookies → 纯 HTTP 请求 API
 """
 
 import asyncio
+import json
 import logging
 import socket
 import subprocess
@@ -23,14 +23,13 @@ import signal
 from pathlib import Path
 from typing import Optional
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
-
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.zhipin.com"
 LOGIN_URL = f"{BASE_URL}/web/user/?ka=header-login"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 USER_DATA_DIR = str(DATA_DIR / "chrome_profile")
+COOKIES_FILE = DATA_DIR / "cookies.json"
 
 SEL_NAV_FIGURE = ".nav-figure"
 
@@ -58,50 +57,44 @@ def _detect_system_chrome() -> Optional[str]:
 class BossBrowser:
     """双模式浏览器管理器
 
-    login 模式: 纯 Chrome subprocess（无 CDP），用于手动登录
-    scrape 模式: Chrome subprocess + CDP，用于自动化采集
+    login 模式: 纯 Chrome subprocess (无 CDP) — 用于手动登录
+    采集不使用浏览器 — 用 httpx + cookies
     """
 
     def __init__(self):
-        self._playwright: Optional[Playwright] = None
-        self._browser: Optional[Browser] = None
-        self._context: Optional[BrowserContext] = None
-        self._page: Optional[Page] = None
         self._chrome_proc: Optional[subprocess.Popen] = None
-        self._debug_port: int = 0
         self._logged_in: bool = False
-        self._headless: bool = False
-        self._mode: str = "idle"  # idle / login / scrape
+        self._cookies: list[dict] = []
+        self._mode: str = "idle"  # idle / login
+
+        # 启动时尝试加载保存的 cookies
+        self._load_cookies_from_file()
 
     @property
     def launched(self) -> bool:
-        if self._mode == "login":
-            return self._chrome_proc is not None and self._chrome_proc.poll() is None
-        if self._mode == "scrape":
-            return self._browser is not None and self._browser.is_connected()
-        return False
+        return self._chrome_proc is not None and self._chrome_proc.poll() is None
 
     @property
     def logged_in(self) -> bool:
         return self._logged_in
 
     @property
-    def page(self) -> Optional[Page]:
-        return self._page
+    def cookies(self) -> list[dict]:
+        return self._cookies
 
     @property
-    def context(self) -> Optional[BrowserContext]:
-        return self._context
+    def cookie_header(self) -> str:
+        """返回可直接用于 HTTP 请求的 Cookie header 字符串"""
+        return "; ".join(f"{c['name']}={c['value']}" for c in self._cookies)
 
     @property
     def mode(self) -> str:
         return self._mode
 
-    # ── 登录模式: 纯 Chrome，无 CDP ───────────────────────
+    # ── 登录: 纯 Chrome (无 CDP) ────────────────────────
 
     async def open_login_page(self) -> str:
-        """启动纯 Chrome 并打开登录页。无 CDP 连接，zhipin 无法检测。"""
-        # 先关闭任何已有的浏览器
+        """启动纯 Chrome 打开登录页。无 CDP 无检测。"""
         await self.close()
 
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -111,7 +104,6 @@ class BossBrowser:
         if not chrome_path:
             raise RuntimeError("未找到系统 Chrome，请安装 Google Chrome")
 
-        # 纯 Chrome — 没有 --remote-debugging-port
         chrome_args = [
             chrome_path,
             f"--user-data-dir={USER_DATA_DIR}",
@@ -127,34 +119,32 @@ class BossBrowser:
             stderr=subprocess.DEVNULL,
         )
         self._mode = "login"
-        self._headless = False
         return LOGIN_URL
 
     async def confirm_login(self) -> bool:
-        """用户手动登录后调用。关闭纯 Chrome，用 CDP 短暂连接验证 cookies。"""
-        # 关闭登录用的纯 Chrome
+        """关闭纯 Chrome，用 headless CDP 导出 cookies 并验证登录状态。"""
         self._kill_chrome()
         await asyncio.sleep(1)
 
-        # 短暂启动带 CDP 的 Chrome 来验证登录状态
-        verified = await self._verify_login_with_cdp()
+        cookies, logged_in = await self._export_cookies_and_verify()
 
-        if verified:
+        if logged_in and cookies:
+            self._cookies = cookies
             self._logged_in = True
-            self._mode = "idle"
-            logger.info("登录验证成功")
+            self._save_cookies_to_file()
+            logger.info("登录确认成功，导出 %d 个 cookies", len(cookies))
         else:
             self._logged_in = False
-            self._mode = "idle"
             logger.warning("登录验证失败")
 
-        return verified
+        self._mode = "idle"
+        return self._logged_in
 
-    async def _verify_login_with_cdp(self) -> bool:
-        """临时启动 CDP Chrome 检查登录状态，验证完立即关闭。"""
+    async def _export_cookies_and_verify(self) -> tuple[list[dict], bool]:
+        """短暂启动 headless CDP Chrome，导出 cookies 并验证登录状态。"""
         chrome_path = _detect_system_chrome()
         if not chrome_path:
-            return False
+            return [], False
 
         port = _find_free_port()
         proc = subprocess.Popen(
@@ -168,8 +158,10 @@ class BossBrowser:
             stderr=subprocess.DEVNULL,
         )
 
+        cookies = []
+        logged_in = False
+
         try:
-            # 等待端口就绪
             for i in range(20):
                 await asyncio.sleep(0.5)
                 try:
@@ -177,15 +169,20 @@ class BossBrowser:
                         break
                 except (ConnectionRefusedError, OSError):
                     if i == 19:
-                        return False
+                        return [], False
 
+            from playwright.async_api import async_playwright
             pw = await async_playwright().start()
             try:
                 browser = await pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
                 ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
-                page = ctx.pages[0] if ctx.pages else await ctx.new_page()
 
-                # 访问首页检查登录标志
+                # 导出所有 cookies
+                all_cookies = await ctx.cookies()
+                cookies = [c for c in all_cookies if "zhipin" in c.get("domain", "")]
+
+                # 短暂导航验证登录状态
+                page = ctx.pages[0] if ctx.pages else await ctx.new_page()
                 await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
                 await asyncio.sleep(2)
 
@@ -193,7 +190,6 @@ class BossBrowser:
                 logged_in = await nav.is_visible(timeout=5000)
 
                 await browser.close()
-                return logged_in
             finally:
                 await pw.stop()
         finally:
@@ -206,121 +202,41 @@ class BossBrowser:
                 except Exception:
                     pass
 
-    # ── 采集模式: Chrome + CDP ────────────────────────────
+        return cookies, logged_in
 
-    async def launch(self, headless: bool = True) -> None:
-        """启动带 CDP 的 Chrome，用于采集任务。"""
-        if self._mode == "scrape" and self.launched:
-            logger.info("采集浏览器已运行")
-            return
+    # ── Cookie 持久化 ────────────────────────────────────
 
-        # 关闭任何已有的浏览器
-        await self.close()
+    def _save_cookies_to_file(self) -> None:
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            COOKIES_FILE.write_text(json.dumps(self._cookies, ensure_ascii=False, indent=2))
+            logger.info("Cookies 已保存到 %s", COOKIES_FILE)
+        except Exception as e:
+            logger.warning("保存 cookies 失败: %s", e)
 
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        Path(USER_DATA_DIR).mkdir(parents=True, exist_ok=True)
-
-        chrome_path = _detect_system_chrome()
-        if not chrome_path:
-            raise RuntimeError("未找到系统 Chrome，请安装 Google Chrome")
-
-        self._debug_port = _find_free_port()
-        chrome_args = [
-            chrome_path,
-            f"--remote-debugging-port={self._debug_port}",
-            f"--user-data-dir={USER_DATA_DIR}",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-        ]
-        if headless:
-            chrome_args.append("--headless=new")
-
-        logger.info("启动采集浏览器: port=%d, headless=%s", self._debug_port, headless)
-        self._chrome_proc = subprocess.Popen(
-            chrome_args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        for i in range(30):
-            await asyncio.sleep(0.5)
+    def _load_cookies_from_file(self) -> None:
+        if COOKIES_FILE.exists():
             try:
-                with socket.create_connection(("127.0.0.1", self._debug_port), timeout=1):
-                    break
-            except (ConnectionRefusedError, OSError):
-                if i == 29:
-                    self._kill_chrome()
-                    raise RuntimeError("Chrome 调试端口启动超时")
+                self._cookies = json.loads(COOKIES_FILE.read_text())
+                if self._cookies:
+                    self._logged_in = True
+                    logger.info("从文件加载了 %d 个 cookies", len(self._cookies))
+            except Exception as e:
+                logger.warning("加载 cookies 失败: %s", e)
 
-        self._playwright = await async_playwright().start()
-        try:
-            self._browser = await self._playwright.chromium.connect_over_cdp(
-                f"http://127.0.0.1:{self._debug_port}"
-            )
-        except Exception as e:
-            self._kill_chrome()
-            if self._playwright:
-                await self._playwright.stop()
-                self._playwright = None
-            raise RuntimeError(f"CDP 连接失败: {e}")
-
-        contexts = self._browser.contexts
-        self._context = contexts[0] if contexts else await self._browser.new_context()
-        pages = self._context.pages
-        self._page = pages[0] if pages else await self._context.new_page()
-        self._headless = headless
-        self._mode = "scrape"
-        logger.info("采集浏览器启动成功 (headless=%s, port=%d)", headless, self._debug_port)
-
-        # 用 profile 里的 cookie 检测登录状态
-        await self._check_login_status()
-
-    async def restart(self, headless: bool = True) -> None:
-        await self.close()
-        await asyncio.sleep(1)
-        await self.launch(headless=headless)
-
-    async def _check_login_status(self) -> bool:
-        if not self._page:
-            return False
-        try:
-            await self._page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
-            await asyncio.sleep(2)
-
-            current_url = self._page.url
-            if current_url == "about:blank" or "security" in current_url:
-                logger.warning("首页被重定向: %s", current_url)
-                return False
-
-            nav = self._page.locator(SEL_NAV_FIGURE)
-            self._logged_in = await nav.is_visible(timeout=3000)
-            if self._logged_in:
-                logger.info("profile 中检测到已登录状态")
-            return self._logged_in
-        except Exception as e:
-            logger.warning("登录状态检查失败: %s", e)
-            return False
+    async def refresh_cookies(self) -> bool:
+        """重新从 Chrome profile 导出 cookies（不需要重新登录）"""
+        cookies, logged_in = await self._export_cookies_and_verify()
+        if logged_in and cookies:
+            self._cookies = cookies
+            self._logged_in = True
+            self._save_cookies_to_file()
+            return True
+        return False
 
     # ── 关闭 / 清理 ──────────────────────────────────────
 
     async def close(self) -> None:
-        self._page = None
-        self._context = None
-        if self._browser:
-            try:
-                await self._browser.close()
-            except Exception:
-                pass
-            self._browser = None
-        if self._playwright:
-            try:
-                await self._playwright.stop()
-            except Exception:
-                pass
-            self._playwright = None
         self._kill_chrome()
         self._mode = "idle"
         logger.info("浏览器已关闭")
@@ -343,8 +259,9 @@ class BossBrowser:
         return {
             "launched": self.launched,
             "logged_in": self._logged_in,
-            "headless": self._headless,
+            "headless": False,
             "mode": self._mode,
+            "cookies_count": len(self._cookies),
         }
 
 

@@ -1,27 +1,27 @@
 from __future__ import annotations
 
-"""Boss直聘岗位采集服务"""
+"""Boss直聘岗位采集服务 — 纯 HTTP 模式
+
+使用 httpx + cookies 调用 Boss 直聘搜索 API。
+不使用浏览器自动化，zhipin 无法检测。
+"""
 
 import asyncio
 import logging
 import random
+from typing import Optional
+
+import httpx
 
 from app.services.base_scraper import BaseScraper
 from app.services.browser import boss_browser
 
 logger = logging.getLogger(__name__)
 
-SEARCH_URL = "https://www.zhipin.com/web/geek/job"
+SEARCH_API = "https://www.zhipin.com/wapi/zpgeek/search/joblist.json"
+DETAIL_API = "https://www.zhipin.com/wapi/zpgeek/job/card.json"
+BASE_URL = "https://www.zhipin.com"
 
-# 薪资字体加密映射
-SALARY_CHAR_MAP = {
-    chr(0xE031): "0", chr(0xE032): "1", chr(0xE033): "2",
-    chr(0xE034): "3", chr(0xE035): "4", chr(0xE036): "5",
-    chr(0xE037): "6", chr(0xE038): "7", chr(0xE039): "8",
-    chr(0xE03A): "9",
-}
-
-# 常用城市编码（Boss直聘专用）
 CITY_CODES = {
     "全国": "100010000",
     "北京": "101010100", "上海": "101020100", "广州": "101280100",
@@ -35,13 +35,11 @@ CITY_CODES = {
     "福州": "101230100",
 }
 
-
-def decode_salary(text: str) -> str:
-    return "".join(SALARY_CHAR_MAP.get(c, c) for c in text)
+UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 
 class BossScraper(BaseScraper):
-    """Boss直聘岗位采集器"""
+    """Boss直聘 HTTP 采集器"""
 
     PLATFORM = "boss"
 
@@ -55,94 +53,117 @@ class BossScraper(BaseScraper):
     def get_city_codes(self) -> dict[str, str]:
         return CITY_CODES
 
+    def _build_headers(self) -> dict:
+        return {
+            "Cookie": boss_browser.cookie_header,
+            "User-Agent": UA,
+            "Referer": f"{BASE_URL}/",
+            "Accept": "application/json, text/plain, */*",
+        }
+
     async def scrape_page(self, keyword: str, city_code: str, salary: str, page: int) -> list[dict]:
-        page_obj = boss_browser.page
-        if not page_obj:
+        if not boss_browser.cookies:
+            logger.warning("Boss: 没有可用的 cookies")
             return []
 
-        params = f"query={keyword}&city={city_code}&page={page}"
+        params = {
+            "scene": "1",
+            "query": keyword,
+            "city": city_code,
+            "page": str(page),
+            "pageSize": "15",
+        }
         if salary:
-            params += f"&salary={salary}"
-        url = f"{SEARCH_URL}?{params}"
+            params["salary"] = salary
 
-        await page_obj.goto(url, wait_until="domcontentloaded", timeout=20000)
-        await asyncio.sleep(random.uniform(2, 4))
+        headers = self._build_headers()
 
         try:
-            await page_obj.wait_for_selector(".job-card-wrapper, .job-card-box", timeout=10000)
-        except Exception:
-            logger.warning("Boss列表页加载超时")
+            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=15) as client:
+                resp = await client.get(SEARCH_API, params=params)
+
+            if resp.status_code != 200:
+                logger.warning("Boss API 返回 %d", resp.status_code)
+                return []
+
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.warning("Boss API 错误: code=%s, msg=%s", data.get("code"), data.get("message"))
+                return []
+
+            job_list = data.get("zpData", {}).get("jobList", [])
+            result = []
+            for j in job_list:
+                enc_id = j.get("encryptJobId", "")
+                job_url = f"{BASE_URL}/job_detail/{enc_id}.html" if enc_id else ""
+
+                result.append({
+                    "title": j.get("jobName", ""),
+                    "salary": j.get("salaryDesc", ""),
+                    "company": j.get("brandName", ""),
+                    "city": j.get("cityName", ""),
+                    "experience": j.get("jobExperience", ""),
+                    "education": j.get("jobDegree", ""),
+                    "url": job_url,
+                    "hr_name": j.get("bossName", ""),
+                    "hr_title": j.get("bossTitle", ""),
+                    "hr_active": j.get("bossOnline", ""),
+                    "company_size": j.get("brandScaleName", ""),
+                    "company_industry": j.get("brandIndustry", ""),
+                    "tags": ",".join(j.get("skills", [])),
+                    # 保存 encryptJobId 用于详情请求
+                    "_encrypt_id": enc_id,
+                })
+
+            logger.info("Boss 第 %d 页获取到 %d 个岗位 (API)", page, len(result))
+            return result
+
+        except Exception as e:
+            logger.error("Boss API 请求失败: %s", e)
             return []
 
-        jobs = await page_obj.evaluate("""
-            () => {
-                const cards = document.querySelectorAll('.job-card-wrapper, .job-card-box');
-                return Array.from(cards).map(card => {
-                    const link = card.querySelector('a.job-card-left, a[href*="/job_detail/"]');
-                    const nameEl = card.querySelector('.job-name');
-                    const salaryEl = card.querySelector('.salary');
-                    const companyEl = card.querySelector('.company-name a, .company-name');
-                    const infoItems = card.querySelectorAll('.job-info .tag-list li, .job-info span');
-                    const hrEl = card.querySelector('.info-public em');
-                    const activeEl = card.querySelector('.boss-online-tag, .boss-active-time');
-
-                    let city = '', experience = '', education = '';
-                    const infos = Array.from(infoItems).map(el => el.textContent.trim());
-                    if (infos.length >= 1) city = infos[0];
-                    if (infos.length >= 2) experience = infos[1];
-                    if (infos.length >= 3) education = infos[2];
-
-                    return {
-                        title: nameEl ? nameEl.textContent.trim() : '',
-                        salary: salaryEl ? salaryEl.textContent.trim() : '',
-                        company: companyEl ? companyEl.textContent.trim() : '',
-                        city, experience, education,
-                        url: link ? link.getAttribute('href') : '',
-                        hr_name: hrEl ? hrEl.textContent.trim() : '',
-                        hr_active: activeEl ? activeEl.textContent.trim() : '',
-                    };
-                });
-            }
-        """)
-
-        result = []
-        for j in jobs:
-            if not j.get("title"):
-                continue
-            j["salary"] = decode_salary(j.get("salary", ""))
-            href = j.get("url", "")
-            if href and not href.startswith("http"):
-                j["url"] = f"https://www.zhipin.com{href}"
-            result.append(j)
-
-        logger.info("Boss 第 %d 页解析到 %d 个岗位", page, len(result))
-        return result
-
     async def fetch_detail(self, job_url: str) -> dict:
-        if not job_url or not boss_browser.page:
+        """从 API 获取岗位详情。Boss 搜索 API 已返回大部分字段，
+        如果需要 description 可以请求详情页 HTML 并解析。"""
+        if not job_url or not boss_browser.cookies:
             return {}
 
-        page_obj = boss_browser.page
-        await page_obj.goto(job_url, wait_until="domcontentloaded", timeout=20000)
-        await asyncio.sleep(random.uniform(1, 2))
+        headers = self._build_headers()
 
-        detail = await page_obj.evaluate("""
-            () => {
-                const descEl = document.querySelector('.job-sec-text, .job-detail-section .text');
-                const tagsEls = document.querySelectorAll('.job-tags .tag-item, .job-keyword-list li');
-                const sizeEl = document.querySelector('.sider-company .company-info-size, .company-size');
-                const indEl = document.querySelector('.sider-company .company-info-industry, .company-industry');
+        try:
+            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=15) as client:
+                resp = await client.get(job_url)
 
-                return {
-                    description: descEl ? descEl.innerText.trim() : '',
-                    tags: Array.from(tagsEls).map(el => el.textContent.trim()).join(','),
-                    company_size: sizeEl ? sizeEl.textContent.trim() : '',
-                    company_industry: indEl ? indEl.textContent.trim() : '',
-                };
+            if resp.status_code != 200:
+                return {}
+
+            # 从 HTML 中提取 job description
+            text = resp.text
+            desc = ""
+            tags = ""
+
+            # 简单的 HTML 解析提取描述文本
+            import re
+            desc_match = re.search(
+                r'<div class="job-sec-text">(.*?)</div>',
+                text, re.DOTALL
+            )
+            if desc_match:
+                raw = desc_match.group(1)
+                desc = re.sub(r'<[^>]+>', '\n', raw).strip()
+
+            tag_matches = re.findall(r'<li class="tag-item">(.*?)</li>', text)
+            if tag_matches:
+                tags = ",".join(t.strip() for t in tag_matches)
+
+            return {
+                "description": desc,
+                "tags": tags if tags else "",
             }
-        """)
-        return detail
+
+        except Exception as e:
+            logger.warning("Boss 详情请求失败 %s: %s", job_url, e)
+            return {}
 
 
-# 全局单例
 boss_scraper = BossScraper()

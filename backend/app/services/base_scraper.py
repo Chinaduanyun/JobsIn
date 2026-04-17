@@ -27,8 +27,8 @@ class BaseScraper(ABC):
 
     async def run_task(self, task_id: int) -> None:
         """执行一个采集任务（通用流程）"""
-        if not boss_browser.launched or not boss_browser.logged_in:
-            await self._fail_task(task_id, "浏览器未启动或未登录")
+        if not boss_browser.logged_in or not boss_browser.cookies:
+            await self._fail_task(task_id, "未登录或无可用 cookies，请先完成登录")
             return
 
         if task_id in self._running_tasks:

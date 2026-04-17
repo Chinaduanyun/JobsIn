@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { browser as browserApi } from '@/lib/api'
 import type { BrowserStatus } from '@/types'
-import { Monitor, Power, LogIn, CheckCircle, Loader2, Play } from 'lucide-react'
+import { Monitor, LogIn, CheckCircle, Loader2, RefreshCw, Cookie } from 'lucide-react'
 
 export default function BrowserPanel() {
   const [status, setStatus] = useState<BrowserStatus>({
@@ -13,6 +13,7 @@ export default function BrowserPanel() {
     logged_in: false,
     headless: false,
     mode: 'idle',
+    cookies_count: 0,
   })
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
@@ -56,14 +57,14 @@ export default function BrowserPanel() {
     setLoading('')
   }
 
-  const handleLaunchScraper = async () => {
-    setLoading('launch')
+  const handleRefreshCookies = async () => {
+    setLoading('refresh')
     setError('')
     try {
-      await browserApi.launch(true)
+      await browserApi.refreshCookies()
       await fetchStatus()
     } catch (e: any) {
-      setError(e.message || '启动采集浏览器失败')
+      setError(e.message || 'Cookies 刷新失败')
     }
     setLoading('')
   }
@@ -80,26 +81,23 @@ export default function BrowserPanel() {
     setLoading('')
   }
 
-  const modeBadge = () => {
-    switch (status.mode) {
-      case 'login': return <Badge variant="outline" className="bg-yellow-50">登录中</Badge>
-      case 'scrape': return <Badge variant="default" className="bg-blue-600">采集中</Badge>
-      default: return <Badge variant="outline">空闲</Badge>
-    }
-  }
-
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
-            <Monitor className="h-4 w-4" /> 浏览器控制
+            <Monitor className="h-4 w-4" /> 浏览器 & 登录
           </CardTitle>
           <div className="flex items-center gap-2">
-            {modeBadge()}
             <Badge variant={status.logged_in ? 'default' : 'secondary'}>
               {status.logged_in ? '已登录' : '未登录'}
             </Badge>
+            {status.cookies_count > 0 && (
+              <Badge variant="outline" className="text-xs">
+                <Cookie className="h-3 w-3 mr-1" />
+                {status.cookies_count} cookies
+              </Badge>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -110,12 +108,13 @@ export default function BrowserPanel() {
           </Alert>
         )}
 
-        {/* 第一步: 登录 */}
+        {/* 未登录状态 */}
         {!status.logged_in && status.mode !== 'login' && (
           <div className="rounded-lg border p-3 space-y-2">
-            <p className="text-sm font-medium">第一步：登录 Boss 直聘</p>
+            <p className="text-sm font-medium">登录 Boss 直聘</p>
             <p className="text-xs text-muted-foreground">
-              会打开一个普通的 Chrome 窗口（不会被网站检测），请在其中完成登录。
+              打开 Chrome 完成登录后，系统会导出 cookies 用于 HTTP 采集。
+              不使用浏览器自动化，不会被网站检测。
             </p>
             <Button onClick={handleOpenLogin} disabled={loading === 'login'}>
               {loading === 'login' ? (
@@ -139,7 +138,7 @@ export default function BrowserPanel() {
                 <li>登录成功后，点击下方「我已登录」按钮</li>
               </ol>
               <p className="text-xs text-muted-foreground mt-2">
-                💡 点击「我已登录」后，Chrome 会自动关闭并验证登录状态
+                💡 点击后 Chrome 会关闭，系统自动导出 cookies
               </p>
               <div className="mt-3 flex gap-2">
                 <Button onClick={handleConfirmLogin} disabled={loading === 'confirm'}>
@@ -158,49 +157,34 @@ export default function BrowserPanel() {
           </Alert>
         )}
 
-        {/* 第二步: 已登录，启动采集 */}
-        {status.logged_in && status.mode !== 'scrape' && (
-          <div className="rounded-lg border p-3 space-y-2">
-            <p className="text-sm font-medium text-green-600">✅ 已登录</p>
+        {/* 已登录 */}
+        {status.logged_in && (
+          <div className="rounded-lg border border-green-200 bg-green-50 p-3 space-y-2">
+            <p className="text-sm font-medium text-green-700">✅ 已登录，可以开始采集</p>
             <p className="text-xs text-muted-foreground">
-              可以启动采集浏览器（后台无头模式），开始采集岗位信息。
+              采集使用纯 HTTP 请求（不启动浏览器），直接调用 Boss 直聘 API 获取数据。
             </p>
-            <Button onClick={handleLaunchScraper} disabled={loading === 'launch'}>
-              {loading === 'launch' ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <Play className="h-4 w-4 mr-1" />
-              )}
-              启动采集浏览器
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleRefreshCookies} disabled={loading === 'refresh'}>
+                {loading === 'refresh' ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                )}
+                刷新 Cookies
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleOpenLogin} disabled={loading === 'login'}>
+                <LogIn className="h-4 w-4 mr-1" />
+                重新登录
+              </Button>
+            </div>
           </div>
         )}
 
-        {/* 采集模式运行中 */}
-        {status.mode === 'scrape' && (
-          <Alert>
-            <AlertDescription className="text-green-600">
-              ✅ 采集浏览器已就绪，可以在「采集任务」页面创建任务
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* 关闭按钮 */}
-        {(status.launched || status.mode === 'login') && status.mode !== 'login' && (
-          <Button variant="destructive" onClick={handleClose} disabled={loading === 'close'} size="sm">
-            {loading === 'close' ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <Power className="h-4 w-4 mr-1" />
-            )}
-            关闭浏览器
-          </Button>
-        )}
-
-        {/* 登录信息持久化提示 */}
+        {/* 持久化提示 */}
         {status.logged_in && (
           <p className="text-xs text-muted-foreground">
-            💡 登录信息已保存在 Chrome profile 中，下次启动无需重复登录
+            💡 Cookies 已保存，重启程序后无需重新登录。如果采集出现 403 错误，请刷新 Cookies 或重新登录。
           </p>
         )}
       </CardContent>

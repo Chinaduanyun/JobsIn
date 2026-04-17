@@ -37,8 +37,11 @@ async def get_daily_limit() -> int:
 
 async def apply_to_job(job_id: int, greeting_text: str | None = None) -> Application:
     """对指定岗位发起沟通"""
-    if not boss_browser.launched or not boss_browser.logged_in:
-        raise RuntimeError("浏览器未启动或未登录")
+    if not boss_browser.logged_in:
+        raise RuntimeError("未登录，请先完成登录")
+
+    # 投递需要启动 CDP 浏览器来操作页面
+    # TODO: 后续考虑使用 API 方式投递
 
     # 检查每日限额
     today_count = await get_today_applied()

@@ -87,4 +87,5 @@ export interface BrowserStatus {
   logged_in: boolean
   headless: boolean
   mode: string
+  cookies_count: number
 }
