@@ -18,7 +18,7 @@ router = APIRouter()
 class TaskCreate(BaseModel):
     platform: str = "boss"
     keyword: str
-    city: str = "全国"
+    city: str = "杭州"
     salary: str = ""
     max_pages: int = 5
 

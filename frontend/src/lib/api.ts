@@ -118,6 +118,11 @@ export const applications = {
       method: 'POST',
       body: JSON.stringify({ job_id: jobId, greeting_text: greetingText }),
     }),
+  batchApply: (jobIds: number[], greetingTexts?: Record<number, string>) =>
+    request<{ message: string; total: number }>('/applications/batch-apply', {
+      method: 'POST',
+      body: JSON.stringify({ job_ids: jobIds, greeting_texts: greetingTexts }),
+    }),
   list: (page = 1) =>
     request<{ items: any[]; page: number; size: number }>(`/applications?page=${page}`),
   today: () => request<{ count: number }>('/applications/today'),

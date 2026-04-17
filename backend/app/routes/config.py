@@ -13,6 +13,9 @@ DEFAULTS = {
     "ai_model": "gpt-4o-mini",
     "daily_apply_limit": "100",
     "today_applied": "0",
+    "scrape_page_delay": "3-8",
+    "scrape_detail_delay": "1-3",
+    "apply_delay": "5-15",
 }
 
 

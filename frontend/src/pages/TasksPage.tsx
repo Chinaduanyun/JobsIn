@@ -27,7 +27,7 @@ const platformColors: Record<string, string> = {
 export default function TasksPage() {
   const [taskList, setTaskList] = useState<CollectionTask[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ platform: 'boss', keyword: '', city: '全国', salary: '' })
+  const [form, setForm] = useState({ platform: 'boss', keyword: '', city: '杭州', salary: '' })
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus | null>(null)
   const [error, setError] = useState('')
@@ -62,7 +62,7 @@ export default function TasksPage() {
     setError('')
     try {
       await tasksApi.create(form)
-      setForm({ platform: 'boss', keyword: '', city: '全国', salary: '' })
+      setForm({ platform: 'boss', keyword: '', city: '杭州', salary: '' })
       setShowForm(false)
       refresh()
     } catch (e: any) {
@@ -90,7 +90,7 @@ export default function TasksPage() {
     refresh()
   }
 
-  const browserReady = browserStatus?.launched && browserStatus?.logged_in
+  const browserReady = browserStatus?.logged_in && (browserStatus?.cookies_count ?? 0) > 0
   const getPlatformName = (key: string) => platforms.find(p => p.key === key)?.name || key
 
   return (
@@ -107,9 +107,9 @@ export default function TasksPage() {
         <Alert className="mb-4">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            {!browserStatus?.launched
-              ? '浏览器未启动，请先到「系统设置」启动浏览器'
-              : '浏览器未登录，请先到「系统设置」扫码登录'}
+            {!browserStatus?.logged_in
+              ? '未登录，请先到「系统设置」完成登录'
+              : 'Cookies 不可用，请到「系统设置」刷新 Cookies'}
           </AlertDescription>
         </Alert>
       )}

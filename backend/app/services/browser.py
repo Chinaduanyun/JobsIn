@@ -31,8 +31,6 @@ DATA_DIR = Path(__file__).parent.parent.parent / "data"
 USER_DATA_DIR = str(DATA_DIR / "chrome_profile")
 COOKIES_FILE = DATA_DIR / "cookies.json"
 
-SEL_NAV_FIGURE = ".nav-figure"
-
 
 def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -141,7 +139,8 @@ class BossBrowser:
         return self._logged_in
 
     async def _export_cookies_and_verify(self) -> tuple[list[dict], bool]:
-        """短暂启动 headless CDP Chrome，导出 cookies 并验证登录状态。"""
+        """短暂启动 headless CDP Chrome，导出 cookies。
+        通过检查 cookie 中是否有登录 token 判断登录状态，不导航页面。"""
         chrome_path = _detect_system_chrome()
         if not chrome_path:
             return [], False
@@ -177,17 +176,17 @@ class BossBrowser:
                 browser = await pw.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
                 ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
 
-                # 导出所有 cookies
+                # 导出所有 cookies（不需要导航到页面）
                 all_cookies = await ctx.cookies()
                 cookies = [c for c in all_cookies if "zhipin" in c.get("domain", "")]
 
-                # 短暂导航验证登录状态
-                page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-                await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
-                await asyncio.sleep(2)
+                # 通过 cookie 内容判断登录状态
+                cookie_names = {c["name"] for c in cookies}
+                # wt2 或 zp_at 是 Boss 直聘的登录 token
+                logged_in = bool(cookie_names & {"wt2", "zp_at", "token"})
 
-                nav = page.locator(SEL_NAV_FIGURE)
-                logged_in = await nav.is_visible(timeout=5000)
+                logger.info("导出 %d 个 zhipin cookies, 登录 token: %s",
+                            len(cookies), logged_in)
 
                 await browser.close()
             finally:

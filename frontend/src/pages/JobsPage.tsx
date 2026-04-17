@@ -3,9 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { jobs as jobsApi, applications as appsApi } from '@/lib/api'
 import type { Job, PaginatedResponse } from '@/types'
-import { Search, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, ExternalLink, CheckSquare, Square, Send, Loader2 } from 'lucide-react'
 import JobDetailDrawer from '@/components/JobDetailDrawer'
 
 export default function JobsPage() {
@@ -19,6 +20,9 @@ export default function JobsPage() {
   const [page, setPage] = useState(1)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [batchMsg, setBatchMsg] = useState('')
 
   const fetchJobs = (p: number, kw: string) => {
     jobsApi.list({ page: p, page_size: 20, keyword: kw || undefined }).then(setData).catch(() => {})
@@ -34,7 +38,6 @@ export default function JobsPage() {
   }
 
   const handleJobClick = async (job: Job) => {
-    // Fetch full detail with analysis
     try {
       const detail = await jobsApi.get(job.id)
       const full = (detail as any).job || detail
@@ -50,11 +53,62 @@ export default function JobsPage() {
     await appsApi.apply(jobId, greeting)
   }
 
+  const toggleSelect = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === data.items.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(data.items.map(j => j.id)))
+    }
+  }
+
+  const handleBatchApply = async () => {
+    if (selectedIds.size === 0) return
+    setBatchLoading(true)
+    setBatchMsg('')
+    try {
+      const res = await appsApi.batchApply(Array.from(selectedIds))
+      setBatchMsg(`✅ 批量投递已启动：${res.total} 个岗位`)
+      setSelectedIds(new Set())
+    } catch (e: any) {
+      setBatchMsg(`❌ ${e.message || '批量投递失败'}`)
+    }
+    setBatchLoading(false)
+    setTimeout(() => setBatchMsg(''), 5000)
+  }
+
   const totalPages = Math.ceil(data.total / data.size) || 1
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-4">岗位列表</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-2xl font-bold">岗位列表</h2>
+        {selectedIds.size > 0 && (
+          <Button onClick={handleBatchApply} disabled={batchLoading}>
+            {batchLoading ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4 mr-1" />
+            )}
+            批量投递 ({selectedIds.size})
+          </Button>
+        )}
+      </div>
+
+      {batchMsg && (
+        <Alert className="mb-4">
+          <AlertDescription>{batchMsg}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Search */}
       <div className="flex gap-2 mb-4">
@@ -68,6 +122,16 @@ export default function JobsPage() {
         <Button onClick={handleSearch} variant="outline" size="icon">
           <Search className="h-4 w-4" />
         </Button>
+        {data.items.length > 0 && (
+          <Button onClick={toggleSelectAll} variant="outline" size="sm" className="ml-auto">
+            {selectedIds.size === data.items.length ? (
+              <CheckSquare className="h-4 w-4 mr-1" />
+            ) : (
+              <Square className="h-4 w-4 mr-1" />
+            )}
+            全选
+          </Button>
+        )}
       </div>
 
       {/* Job list */}
@@ -82,24 +146,38 @@ export default function JobsPage() {
           data.items.map((job) => (
             <Card
               key={job.id}
-              className="hover:shadow-md transition-shadow cursor-pointer"
+              className={`hover:shadow-md transition-shadow cursor-pointer ${
+                selectedIds.has(job.id) ? 'ring-2 ring-blue-400' : ''
+              }`}
               onClick={() => handleJobClick(job)}
             >
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-base">
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-xs mr-2 ${
-                        { boss: 'bg-green-100 text-green-800', zhaopin: 'bg-blue-100 text-blue-800', job51: 'bg-orange-100 text-orange-800', liepin: 'bg-purple-100 text-purple-800' }[job.platform] || 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {{ boss: 'Boss', zhaopin: '智联', job51: '51job', liepin: '猎聘' }[job.platform] || job.platform}
-                      </span>
-                      {job.title}
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {job.company} · {job.city}
-                      {job.company_size && ` · ${job.company_size}`}
-                    </p>
+                  <div className="flex items-start gap-2">
+                    <button
+                      onClick={(e) => toggleSelect(job.id, e)}
+                      className="mt-1 text-muted-foreground hover:text-foreground"
+                    >
+                      {selectedIds.has(job.id) ? (
+                        <CheckSquare className="h-4 w-4 text-blue-500" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </button>
+                    <div>
+                      <CardTitle className="text-base">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs mr-2 ${
+                          { boss: 'bg-green-100 text-green-800', zhaopin: 'bg-blue-100 text-blue-800', job51: 'bg-orange-100 text-orange-800', liepin: 'bg-purple-100 text-purple-800' }[job.platform] || 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {{ boss: 'Boss', zhaopin: '智联', job51: '51job', liepin: '猎聘' }[job.platform] || job.platform}
+                        </span>
+                        {job.title}
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {job.company} · {job.city}
+                        {job.company_size && ` · ${job.company_size}`}
+                      </p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="text-orange-600">

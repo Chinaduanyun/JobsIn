@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,6 +9,14 @@ from fastapi.staticfiles import StaticFiles
 from app.database import init_db
 from app.routes import jobs, tasks, resumes, ai, browser, config, applications
 
+# 配置日志级别 — app 模块用 DEBUG
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("app").setLevel(logging.DEBUG)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -15,7 +24,9 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="FindJobs", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="FindJobs", version="0.3.0", lifespan=lifespan)
+
+APP_VERSION = "0.3.0"
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +47,10 @@ app.include_router(applications.router, prefix="/api/applications", tags=["appli
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+@app.get("/api/version")
+async def version():
+    return {"version": APP_VERSION}
 
 # 前端静态文件（生产模式）
 frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
