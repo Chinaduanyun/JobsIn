@@ -8,9 +8,4 @@ frontend/dist/
 *.db
 
 # 参考仓库（仅本地分析用）
-auto_get_jobs/
-boss-zhipin-automation/
-boss_batch_push/
-browser-use/
-mcp-jobs/
-auto-zhipin/
+references/
