@@ -61,3 +61,16 @@ async def delete_resume(resume_id: int, session: AsyncSession = Depends(get_sess
         await session.delete(resume)
         await session.commit()
     return {"ok": True}
+
+
+@router.post("/{resume_id}/activate")
+async def activate_resume(resume_id: int, session: AsyncSession = Depends(get_session)):
+    resume = await session.get(Resume, resume_id)
+    if not resume:
+        return {"error": "not found"}
+    # 取消所有其他简历的激活状态
+    all_resumes = await session.execute(select(Resume))
+    for r in all_resumes.scalars().all():
+        r.is_active = (r.id == resume_id)
+    await session.commit()
+    return {"ok": True}

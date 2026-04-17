@@ -68,13 +68,17 @@ export const resumes = {
 // ===== AI =====
 export const ai = {
   analyze: (jobId: number) =>
-    request<import('@/types').JobAnalysis>(`/ai/analyze/${jobId}`, {
+    request<import('@/types').JobAnalysis>('/ai/analyze', {
       method: 'POST',
+      body: JSON.stringify({ job_id: jobId }),
     }),
   greeting: (jobId: number) =>
-    request<{ greeting: string }>(`/ai/greeting/${jobId}`, {
+    request<{ greeting_text: string }>('/ai/greeting', {
       method: 'POST',
+      body: JSON.stringify({ job_id: jobId }),
     }),
+  getAnalysis: (jobId: number) =>
+    request<import('@/types').JobAnalysis>(`/ai/analysis/${jobId}`),
 }
 
 // ===== Browser =====
