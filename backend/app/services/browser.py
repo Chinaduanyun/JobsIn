@@ -1,25 +1,27 @@
 from __future__ import annotations
 
-"""浏览器管理 — 系统 Chrome + 持久化 profile + 手动登录
+"""浏览器管理 — subprocess 启动真实 Chrome + CDP 连接
 
-核心策略 (来自 reference/security.ts 的发现):
-  zhipin.com 会主动检测 stealth patches，注入 JS 反而触发拦截。
-  因此:
-  1. 使用系统安装的 Chrome + 真实 user profile → 最像真人
-  2. 仅通过启动参数去掉 AutomationControlled
-  3. 不注入任何 stealth JS
-  4. 登录阶段完全手动：打开登录页 → 用户自行扫码 → 点「我已登录」
-  5. 持久化 profile 保留 cookie，下次启动无需重新登录
+核心策略:
+  Playwright 的 launch / launch_persistent_context 会给 Chrome 注入自动化标记，
+  即使加了 --disable-blink-features=AutomationControlled 也会被 zhipin.com 检测到。
+
+  解决方案: 用 subprocess 启动真实的 Chrome 进程，然后通过 CDP 连接。
+  这样 Chrome 是完全原生启动的进程，Playwright 只是通过调试协议操作页面。
+
+  登录阶段完全手动: 打开登录页 → 用户自行扫码 → 点「我已登录」。
+  持久化 profile 保留 cookie，下次启动无需重新登录。
 """
 
 import asyncio
 import logging
+import socket
+import subprocess
+import signal
 from pathlib import Path
 from typing import Optional
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
-
-from app.services.anti_detection import LAUNCH_ARGS
 
 logger = logging.getLogger(__name__)
 
@@ -27,40 +29,44 @@ BASE_URL = "https://www.zhipin.com"
 LOGIN_URL = f"{BASE_URL}/web/user/?ka=header-login"
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
-# 已登录的标志选择器
 SEL_NAV_FIGURE = ".nav-figure"
 
 
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 def _detect_system_chrome() -> Optional[str]:
-    """检测系统安装的 Chrome"""
     import platform as _platform
     if _platform.system() == "Darwin":
         p = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
         if Path(p).exists():
             return p
     elif _platform.system() == "Linux":
-        for p in ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium-browser"]:
+        for p in ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium-browser", "/usr/bin/chromium"]:
             if Path(p).exists():
                 return p
     return None
 
 
 class BossBrowser:
-    """单例浏览器管理器 — 系统 Chrome + persistent profile"""
+    """单例浏览器管理器 — subprocess Chrome + CDP connect"""
 
     def __init__(self):
         self._playwright: Optional[Playwright] = None
         self._browser: Optional[Browser] = None
         self._context: Optional[BrowserContext] = None
         self._page: Optional[Page] = None
+        self._chrome_proc: Optional[subprocess.Popen] = None
+        self._debug_port: int = 0
         self._logged_in: bool = False
         self._headless: bool = True
 
-    # ── 属性 ──────────────────────────────────────────────
-
     @property
     def launched(self) -> bool:
-        return self._context is not None
+        return self._browser is not None and self._browser.is_connected()
 
     @property
     def logged_in(self) -> bool:
@@ -74,64 +80,74 @@ class BossBrowser:
     def context(self) -> Optional[BrowserContext]:
         return self._context
 
-    # ── 启动 / 关闭 ──────────────────────────────────────
-
     async def launch(self, headless: bool = True) -> None:
         if self.launched:
             logger.info("浏览器已运行")
             return
 
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        self._playwright = await async_playwright().start()
-
-        chrome_path = _detect_system_chrome()
         user_data_dir = str(DATA_DIR / "chrome_profile")
         Path(user_data_dir).mkdir(parents=True, exist_ok=True)
 
-        ctx_kwargs = {
-            "headless": headless,
-            "args": LAUNCH_ARGS,
-            "locale": "zh-CN",
-            "timezone_id": "Asia/Shanghai",
-            "viewport": None,           # 用窗口实际大小，不固定
-            "ignore_https_errors": True,
-            # 不设 user_agent → 让 Chrome 用自己真实的 UA
-            # 不设 bypass_csp → 避免触发 CSP 检测
-            # 不注入 storage_state → cookie 全靠 profile 目录
-        }
+        chrome_path = _detect_system_chrome()
+        if not chrome_path:
+            raise RuntimeError("未找到系统 Chrome，请安装 Google Chrome")
 
-        # 按优先级尝试启动
-        strategies = []
-        if chrome_path:
-            strategies.append(("系统 Chrome", {"executable_path": chrome_path}))
-        strategies.append(("channel=chrome", {"channel": "chrome"}))
-        strategies.append(("Playwright Chromium", {}))
+        self._debug_port = _find_free_port()
 
-        for name, extra in strategies:
+        # 用 subprocess 启动真实 Chrome — 不经过 Playwright
+        chrome_args = [
+            chrome_path,
+            f"--remote-debugging-port={self._debug_port}",
+            f"--user-data-dir={user_data_dir}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+        ]
+        if headless:
+            chrome_args.append("--headless=new")
+
+        logger.info("用 subprocess 启动 Chrome: port=%d, headless=%s", self._debug_port, headless)
+        self._chrome_proc = subprocess.Popen(
+            chrome_args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # 等待 Chrome 调试端口就绪
+        for i in range(30):
+            await asyncio.sleep(0.5)
             try:
-                merged = {**ctx_kwargs, **extra}
-                self._context = await self._playwright.chromium.launch_persistent_context(
-                    user_data_dir, **merged
-                )
-                self._browser = self._context.browser
-                logger.info("使用 %s 启动成功", name)
-                break
-            except Exception as e:
-                logger.warning("%s 启动失败: %s", name, e)
-                self._context = None
-                self._browser = None
+                with socket.create_connection(("127.0.0.1", self._debug_port), timeout=1):
+                    break
+            except (ConnectionRefusedError, OSError):
+                if i == 29:
+                    self._kill_chrome()
+                    raise RuntimeError("Chrome 调试端口启动超时")
 
-        if self._context is None:
-            raise RuntimeError("所有浏览器启动策略均失败")
+        # 通过 CDP 连接已运行的 Chrome
+        self._playwright = await async_playwright().start()
+        try:
+            self._browser = await self._playwright.chromium.connect_over_cdp(
+                f"http://127.0.0.1:{self._debug_port}"
+            )
+        except Exception as e:
+            self._kill_chrome()
+            if self._playwright:
+                await self._playwright.stop()
+                self._playwright = None
+            raise RuntimeError(f"CDP 连接失败: {e}")
 
-        # 不注入任何 stealth JS — zhipin.com 会检测并拒绝
-
+        # 获取默认 context 和 page
+        contexts = self._browser.contexts
+        self._context = contexts[0] if contexts else await self._browser.new_context()
         pages = self._context.pages
         self._page = pages[0] if pages else await self._context.new_page()
         self._headless = headless
-        logger.info("浏览器启动成功 (headless=%s)", headless)
+        logger.info("Chrome 启动并连接成功 (headless=%s, port=%d)", headless, self._debug_port)
 
-        # 用 profile 里的 cookie 检测是否已登录
         await self._check_login_status()
 
     async def restart(self, headless: bool = True) -> None:
@@ -141,26 +157,38 @@ class BossBrowser:
 
     async def close(self) -> None:
         self._page = None
-        if self._context:
+        self._context = None
+        if self._browser:
             try:
-                await self._context.close()
+                await self._browser.close()
             except Exception:
                 pass
-            self._context = None
-        self._browser = None
+            self._browser = None
         if self._playwright:
             try:
                 await self._playwright.stop()
             except Exception:
                 pass
             self._playwright = None
+        self._kill_chrome()
         self._logged_in = False
         logger.info("浏览器已关闭")
+
+    def _kill_chrome(self) -> None:
+        if self._chrome_proc and self._chrome_proc.poll() is None:
+            try:
+                self._chrome_proc.send_signal(signal.SIGTERM)
+                self._chrome_proc.wait(timeout=5)
+            except Exception:
+                try:
+                    self._chrome_proc.kill()
+                except Exception:
+                    pass
+            self._chrome_proc = None
 
     # ── 登录 ──────────────────────────────────────────────
 
     async def open_login_page(self) -> str:
-        """打开登录页面，让用户手动登录。返回当前页面 URL。"""
         if not self._page:
             raise RuntimeError("浏览器未启动")
         if self._logged_in:
@@ -175,11 +203,9 @@ class BossBrowser:
         return self._page.url
 
     async def confirm_login(self) -> bool:
-        """用户手动登录完成后调用，验证登录状态。"""
         if not self._page:
             return False
 
-        # 先尝试访问首页看 cookie 是否生效
         try:
             await self._page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
             await asyncio.sleep(2)
@@ -187,7 +213,6 @@ class BossBrowser:
             logger.warning("访问首页失败: %s", e)
             return False
 
-        # 检查登录标志
         try:
             nav = self._page.locator(SEL_NAV_FIGURE)
             self._logged_in = await nav.is_visible(timeout=5000)
@@ -202,7 +227,6 @@ class BossBrowser:
         return self._logged_in
 
     async def _check_login_status(self) -> bool:
-        """启动后检查 profile 中的 cookie 是否已登录"""
         if not self._page:
             return False
         try:
@@ -221,8 +245,6 @@ class BossBrowser:
         except Exception as e:
             logger.warning("登录状态检查失败: %s", e)
             return False
-
-    # ── 状态 ──────────────────────────────────────────────
 
     def get_status(self) -> dict:
         return {
