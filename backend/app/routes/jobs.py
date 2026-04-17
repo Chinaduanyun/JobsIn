@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, func
 
 from app.database import get_session
-from app.models import Job, JobAnalysis
+from app.models import Job, JobAnalysis, Application
 
 router = APIRouter()
 
@@ -29,7 +29,60 @@ async def list_jobs(
     count_stmt = select(func.count()).select_from(Job)
     total = (await session.execute(count_stmt)).scalar()
 
-    return {"items": jobs, "total": total, "page": page, "size": size}
+    # 批量查询所有 job 的最新分析和投递状态
+    job_ids = [j.id for j in jobs]
+    analyses_map: dict[int, JobAnalysis] = {}
+    app_map: dict[int, str] = {}
+    if job_ids:
+        for jid in job_ids:
+            a_stmt = (
+                select(JobAnalysis)
+                .where(JobAnalysis.job_id == jid)
+                .order_by(JobAnalysis.created_at.desc())
+                .limit(1)
+            )
+            a = (await session.execute(a_stmt)).scalar_one_or_none()
+            if a:
+                analyses_map[jid] = a
+
+            app_stmt = (
+                select(Application)
+                .where(Application.job_id == jid)
+                .order_by(Application.created_at.desc())
+                .limit(1)
+            )
+            app = (await session.execute(app_stmt)).scalar_one_or_none()
+            if app:
+                app_map[jid] = app.status
+
+    items = []
+    for j in jobs:
+        d = {
+            "id": j.id, "task_id": j.task_id, "platform": j.platform,
+            "title": j.title, "company": j.company, "salary": j.salary,
+            "city": j.city, "experience": j.experience, "education": j.education,
+            "description": j.description, "url": j.url,
+            "hr_name": j.hr_name, "hr_title": j.hr_title, "hr_active": j.hr_active,
+            "company_size": j.company_size, "company_industry": j.company_industry,
+            "tags": j.tags, "collected_at": j.collected_at.isoformat() if j.collected_at else "",
+        }
+        analysis = analyses_map.get(j.id)
+        if analysis:
+            d["analysis"] = {
+                "id": analysis.id,
+                "job_id": analysis.job_id,
+                "overall_score": analysis.overall_score,
+                "scores_json": analysis.scores_json,
+                "suggestion": analysis.suggestion,
+                "greeting_text": analysis.greeting_text,
+                "created_at": analysis.created_at.isoformat() if analysis.created_at else "",
+            }
+        else:
+            d["analysis"] = None
+        d["apply_status"] = app_map.get(j.id)
+        items.append(d)
+
+    return {"items": items, "total": total, "page": page, "size": size}
 
 
 @router.get("/{job_id}")

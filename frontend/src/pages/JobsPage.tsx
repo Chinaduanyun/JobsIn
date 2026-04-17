@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Progress } from '@/components/ui/progress'
 import { jobs as jobsApi, applications as appsApi, ai as aiApi } from '@/lib/api'
 import type { Job, PaginatedResponse } from '@/types'
 import { Search, ChevronLeft, ChevronRight, ExternalLink, CheckSquare, Square, Send, Loader2, Trash2, Brain, MessageSquare, Clock } from 'lucide-react'
@@ -270,83 +271,118 @@ export default function JobsPage() {
               }`}
               onClick={() => handleJobClick(job)}
             >
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-2">
-                    <button
-                      onClick={(e) => toggleSelect(job.id, e)}
-                      className="mt-1 text-muted-foreground hover:text-foreground"
-                    >
-                      {selectedIds.has(job.id) ? (
-                        <CheckSquare className="h-4 w-4 text-blue-500" />
-                      ) : (
-                        <Square className="h-4 w-4" />
-                      )}
-                    </button>
-                    <div>
-                      <CardTitle className="text-base">
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-xs mr-2 ${
-                          { boss: 'bg-green-100 text-green-800', zhaopin: 'bg-blue-100 text-blue-800', job51: 'bg-orange-100 text-orange-800', liepin: 'bg-purple-100 text-purple-800' }[job.platform] || 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {{ boss: 'Boss', zhaopin: '智联', job51: '51job', liepin: '猎聘' }[job.platform] || job.platform}
-                        </span>
-                        {job.title}
-                      </CardTitle>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {job.company} · {job.city}
-                        {job.company_size && ` · ${job.company_size}`}
-                      </p>
+              <CardContent className="py-3 px-4">
+                <div className="flex gap-4">
+                  {/* 左侧：基本信息 */}
+                  <div className="flex-shrink-0 w-[55%] min-w-0">
+                    <div className="flex items-start gap-2">
+                      <button
+                        onClick={(e) => toggleSelect(job.id, e)}
+                        className="mt-1 text-muted-foreground hover:text-foreground flex-shrink-0"
+                      >
+                        {selectedIds.has(job.id) ? (
+                          <CheckSquare className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <Square className="h-4 w-4" />
+                        )}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        {/* 平台 + 标题 */}
+                        <div className="flex items-center gap-1.5">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-xs flex-shrink-0 ${
+                            { boss: 'bg-green-100 text-green-800', zhaopin: 'bg-blue-100 text-blue-800', job51: 'bg-orange-100 text-orange-800', liepin: 'bg-purple-100 text-purple-800' }[job.platform] || 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {{ boss: 'Boss', zhaopin: '智联', job51: '51job', liepin: '猎聘' }[job.platform] || job.platform}
+                          </span>
+                          <span className="font-medium text-sm truncate">{job.title}</span>
+                          {(job as any).apply_status && (
+                            <Badge variant="outline" className="text-xs flex-shrink-0">
+                              {{ sent: '已投递', pending: '待投递', failed: '投递失败' }[(job as any).apply_status] || (job as any).apply_status}
+                            </Badge>
+                          )}
+                        </div>
+                        {/* 薪资 */}
+                        {job.salary && (
+                          <p className="text-base font-semibold text-orange-600 mt-0.5">{job.salary}</p>
+                        )}
+                        {/* 公司 + 城市 */}
+                        <p className="text-sm text-muted-foreground mt-0.5 truncate">
+                          {job.company}{job.city && ` · ${job.city}`}
+                          {job.company_size && ` · ${job.company_size}`}
+                        </p>
+                        {/* 要求标签 */}
+                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
+                          {job.experience && <span className="bg-muted px-1.5 py-0.5 rounded">{job.experience}</span>}
+                          {job.education && <span className="bg-muted px-1.5 py-0.5 rounded">{job.education}</span>}
+                          {job.hr_name && (
+                            <span>
+                              HR: {job.hr_name}
+                              {job.hr_active && ` (${job.hr_active})`}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-0.5 ml-auto">
+                            <Clock className="h-3 w-3" />
+                            {formatTimeAgo(job.collected_at)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="text-orange-600">
-                      {job.salary}
-                    </Badge>
-                    {job.analysis && (
-                      <Badge
-                        variant={
-                          job.analysis.overall_score >= 0.8
-                            ? 'default'
-                            : job.analysis.overall_score >= 0.6
-                              ? 'secondary'
-                              : 'outline'
-                        }
-                      >
-                        匹配 {Math.round(job.analysis.overall_score * 100)}分
-                      </Badge>
+
+                  {/* 右侧：AI 分析 + 文案预览 */}
+                  <div className="flex-1 min-w-0 border-l pl-3">
+                    {job.analysis ? (
+                      <div className="max-h-[120px] overflow-y-auto space-y-2 text-xs">
+                        {/* AI 匹配度 */}
+                        <div>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="flex items-center gap-1 font-medium text-blue-700 dark:text-blue-400">
+                              <Brain className="h-3 w-3" /> AI 匹配度
+                            </span>
+                            <span className="font-bold text-blue-700 dark:text-blue-400">
+                              {Math.round(job.analysis.overall_score * 100)} 分
+                            </span>
+                          </div>
+                          <Progress value={job.analysis.overall_score * 100} className="h-1" />
+                        </div>
+                        {/* 建议 */}
+                        {job.analysis.suggestion && (
+                          <p className="text-muted-foreground leading-relaxed">{job.analysis.suggestion}</p>
+                        )}
+                        {/* 沟通文案 */}
+                        {job.analysis.greeting_text && (
+                          <div className="bg-muted/50 rounded p-2">
+                            <p className="flex items-center gap-1 text-muted-foreground mb-0.5">
+                              <MessageSquare className="h-3 w-3" /> 沟通文案
+                            </p>
+                            <p className="whitespace-pre-wrap">{job.analysis.greeting_text}</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+                        暂无 AI 分析
+                      </div>
                     )}
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex gap-3 text-muted-foreground">
-                    <span>{job.experience}</span>
-                    <span>{job.education}</span>
-                    <span>
-                      HR: {job.hr_name}
-                      {job.hr_active && ` (${job.hr_active})`}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      {formatTimeAgo(job.collected_at)}
-                    </span>
+
+                  {/* 操作按钮 */}
+                  <div className="flex flex-col items-center gap-1 flex-shrink-0">
                     {job.url && (
                       <a
                         href={job.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-muted-foreground hover:text-foreground"
+                        className="text-muted-foreground hover:text-foreground p-1"
                         onClick={(e) => e.stopPropagation()}
+                        title="打开原页面"
                       >
                         <ExternalLink className="h-4 w-4" />
                       </a>
                     )}
                     <button
                       onClick={(e) => handleDelete(job.id, e)}
-                      className="text-muted-foreground hover:text-red-500 transition-colors"
+                      className="text-muted-foreground hover:text-red-500 transition-colors p-1"
                       title="删除"
                     >
                       <Trash2 className="h-4 w-4" />

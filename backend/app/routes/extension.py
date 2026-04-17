@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
