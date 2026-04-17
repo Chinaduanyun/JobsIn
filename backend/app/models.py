@@ -9,6 +9,7 @@ class Job(SQLModel, table=True):
     __tablename__ = "jobs"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    platform: str = Field(default="boss", index=True)  # boss / zhaopin / job51 / liepin
     title: str
     company: str
     salary: str = ""
@@ -72,10 +73,11 @@ class CollectionTask(SQLModel, table=True):
     __tablename__ = "collection_tasks"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    platform: str = Field(default="boss", index=True)  # boss / zhaopin / job51 / liepin
     keyword: str
     city: str = "全国"
     city_code: str = "100010000"
-    salary: str = ""  # Boss 薪资代码
+    salary: str = ""
     status: str = "pending"  # pending / running / completed / failed / cancelled
     total_collected: int = 0
     max_pages: int = 5

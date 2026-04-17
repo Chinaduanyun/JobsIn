@@ -3,16 +3,10 @@ from __future__ import annotations
 """Boss直聘岗位采集服务"""
 
 import asyncio
-import json
 import logging
 import random
-from typing import Optional
 
-from sqlmodel import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.database import async_session as async_session_factory
-from app.models import Job, CollectionTask
+from app.services.base_scraper import BaseScraper
 from app.services.browser import boss_browser
 
 logger = logging.getLogger(__name__)
@@ -27,7 +21,7 @@ SALARY_CHAR_MAP = {
     chr(0xE03A): "9",
 }
 
-# 常用城市编码
+# 常用城市编码（Boss直聘专用）
 CITY_CODES = {
     "全国": "100010000",
     "北京": "101010100", "上海": "101020100", "广州": "101280100",
@@ -43,107 +37,25 @@ CITY_CODES = {
 
 
 def decode_salary(text: str) -> str:
-    """解码 Boss 直聘加密的薪资字符"""
     return "".join(SALARY_CHAR_MAP.get(c, c) for c in text)
 
 
-def resolve_city_code(city: str) -> str:
-    """城市名 → 编码，找不到就返回全国"""
-    if city in CITY_CODES:
-        return CITY_CODES[city]
-    # 可能用户直接传了编码
-    if city.isdigit() and len(city) == 9:
-        return city
-    return CITY_CODES["全国"]
-
-
-class BossScraper:
+class BossScraper(BaseScraper):
     """Boss直聘岗位采集器"""
 
-    def __init__(self):
-        self._running_tasks: dict[int, bool] = {}  # task_id -> is_running
+    PLATFORM = "boss"
 
-    async def run_task(self, task_id: int) -> None:
-        """执行一个采集任务"""
-        if not boss_browser.launched or not boss_browser.logged_in:
-            await self._fail_task(task_id, "浏览器未启动或未登录")
-            return
+    def resolve_city_code(self, city: str) -> str:
+        if city in CITY_CODES:
+            return CITY_CODES[city]
+        if city.isdigit() and len(city) == 9:
+            return city
+        return CITY_CODES["全国"]
 
-        if task_id in self._running_tasks:
-            logger.warning("任务 %d 已在运行中", task_id)
-            return
+    def get_city_codes(self) -> dict[str, str]:
+        return CITY_CODES
 
-        self._running_tasks[task_id] = True
-        try:
-            async with async_session_factory() as session:
-                task = await session.get(CollectionTask, task_id)
-                if not task:
-                    return
-                task.status = "running"
-                await session.commit()
-
-            city_code = resolve_city_code(task.city)
-            collected = 0
-
-            for page_num in range(1, task.max_pages + 1):
-                if not self._running_tasks.get(task_id, False):
-                    logger.info("任务 %d 被取消", task_id)
-                    break
-
-                logger.info("任务 %d: 采集第 %d/%d 页", task_id, page_num, task.max_pages)
-                jobs = await self._scrape_page(task.keyword, city_code, task.salary, page_num)
-
-                if not jobs:
-                    logger.info("任务 %d: 第 %d 页无结果，停止", task_id, page_num)
-                    break
-
-                # 逐个抓详情并入库
-                for job_data in jobs:
-                    if not self._running_tasks.get(task_id, False):
-                        break
-                    try:
-                        detail = await self._fetch_detail(job_data.get("url", ""))
-                        job_data.update(detail)
-                    except Exception as e:
-                        logger.warning("抓详情失败 %s: %s", job_data.get("url"), e)
-
-                    saved = await self._save_job(job_data, task_id)
-                    if saved:
-                        collected += 1
-
-                    await asyncio.sleep(random.uniform(1, 3))
-
-                # 更新已采集数
-                async with async_session_factory() as session:
-                    t = await session.get(CollectionTask, task_id)
-                    if t:
-                        t.total_collected = collected
-                        await session.commit()
-
-                await asyncio.sleep(random.uniform(3, 8))
-
-            # 完成 — 仅在任务仍为 running 时更新，避免覆盖已取消的状态
-            final_status = "completed" if self._running_tasks.get(task_id) else "cancelled"
-            async with async_session_factory() as session:
-                t = await session.get(CollectionTask, task_id)
-                if t and t.status == "running":
-                    t.status = final_status
-                    t.total_collected = collected
-                    await session.commit()
-            logger.info("任务 %d 完成: %s, 采集 %d 个岗位", task_id, final_status, collected)
-
-        except Exception as e:
-            logger.error("任务 %d 异常: %s", task_id, e)
-            await self._fail_task(task_id, str(e))
-        finally:
-            self._running_tasks.pop(task_id, None)
-
-    async def cancel_task(self, task_id: int) -> None:
-        """标记任务为取消"""
-        self._running_tasks[task_id] = False
-
-    async def _scrape_page(self, keyword: str, city_code: str, salary: str, page: int) -> list[dict]:
-        """抓取搜索结果的一页"""
+    async def scrape_page(self, keyword: str, city_code: str, salary: str, page: int) -> list[dict]:
         page_obj = boss_browser.page
         if not page_obj:
             return []
@@ -156,14 +68,12 @@ class BossScraper:
         await page_obj.goto(url, wait_until="domcontentloaded", timeout=20000)
         await asyncio.sleep(random.uniform(2, 4))
 
-        # 等待岗位列表加载
         try:
             await page_obj.wait_for_selector(".job-card-wrapper, .job-card-box", timeout=10000)
         except Exception:
-            logger.warning("列表页加载超时")
+            logger.warning("Boss列表页加载超时")
             return []
 
-        # 用 JS 提取岗位数据
         jobs = await page_obj.evaluate("""
             () => {
                 const cards = document.querySelectorAll('.job-card-wrapper, .job-card-box');
@@ -186,9 +96,7 @@ class BossScraper:
                         title: nameEl ? nameEl.textContent.trim() : '',
                         salary: salaryEl ? salaryEl.textContent.trim() : '',
                         company: companyEl ? companyEl.textContent.trim() : '',
-                        city: city,
-                        experience: experience,
-                        education: education,
+                        city, experience, education,
                         url: link ? link.getAttribute('href') : '',
                         hr_name: hrEl ? hrEl.textContent.trim() : '',
                         hr_active: activeEl ? activeEl.textContent.trim() : '',
@@ -197,7 +105,6 @@ class BossScraper:
             }
         """)
 
-        # 处理结果
         result = []
         for j in jobs:
             if not j.get("title"):
@@ -208,11 +115,10 @@ class BossScraper:
                 j["url"] = f"https://www.zhipin.com{href}"
             result.append(j)
 
-        logger.info("第 %d 页解析到 %d 个岗位", page, len(result))
+        logger.info("Boss 第 %d 页解析到 %d 个岗位", page, len(result))
         return result
 
-    async def _fetch_detail(self, job_url: str) -> dict:
-        """抓取岗位详情页"""
+    async def fetch_detail(self, job_url: str) -> dict:
         if not job_url or not boss_browser.page:
             return {}
 
@@ -236,45 +142,6 @@ class BossScraper:
             }
         """)
         return detail
-
-    async def _save_job(self, data: dict, task_id: int) -> bool:
-        """保存岗位到数据库，按 URL 去重"""
-        url = data.get("url", "")
-        async with async_session_factory() as session:
-            if url:
-                existing = (await session.execute(
-                    select(Job).where(Job.url == url)
-                )).scalar_one_or_none()
-                if existing:
-                    return False
-
-            job = Job(
-                title=data.get("title", ""),
-                company=data.get("company", ""),
-                salary=data.get("salary", ""),
-                city=data.get("city", ""),
-                experience=data.get("experience", ""),
-                education=data.get("education", ""),
-                description=data.get("description", ""),
-                url=url,
-                hr_name=data.get("hr_name", ""),
-                hr_active=data.get("hr_active", ""),
-                company_size=data.get("company_size", ""),
-                company_industry=data.get("company_industry", ""),
-                tags=data.get("tags", ""),
-                task_id=task_id,
-            )
-            session.add(job)
-            await session.commit()
-            return True
-
-    async def _fail_task(self, task_id: int, reason: str) -> None:
-        async with async_session_factory() as session:
-            t = await session.get(CollectionTask, task_id)
-            if t:
-                t.status = "failed"
-                await session.commit()
-        logger.error("任务 %d 失败: %s", task_id, reason)
 
 
 # 全局单例

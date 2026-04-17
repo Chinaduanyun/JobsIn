@@ -3,6 +3,7 @@
 export interface Job {
   id: number
   task_id: number | null
+  platform: string
   title: string
   company: string
   salary: string
@@ -52,6 +53,7 @@ export interface Resume {
 
 export interface CollectionTask {
   id: number
+  platform: string
   keyword: string
   city: string
   city_code: string
@@ -60,6 +62,11 @@ export interface CollectionTask {
   total_collected: number
   max_pages: number
   created_at: string
+}
+
+export interface Platform {
+  key: string
+  name: string
 }
 
 export interface SystemConfig {

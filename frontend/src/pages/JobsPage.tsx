@@ -88,7 +88,14 @@ export default function JobsPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
                   <div>
-                    <CardTitle className="text-base">{job.title}</CardTitle>
+                    <CardTitle className="text-base">
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-xs mr-2 ${
+                        { boss: 'bg-green-100 text-green-800', zhaopin: 'bg-blue-100 text-blue-800', job51: 'bg-orange-100 text-orange-800', liepin: 'bg-purple-100 text-purple-800' }[job.platform] || 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {{ boss: 'Boss', zhaopin: '智联', job51: '51job', liepin: '猎聘' }[job.platform] || job.platform}
+                      </span>
+                      {job.title}
+                    </CardTitle>
                     <p className="text-sm text-muted-foreground mt-1">
                       {job.company} · {job.city}
                       {job.company_size && ` · ${job.company_size}`}

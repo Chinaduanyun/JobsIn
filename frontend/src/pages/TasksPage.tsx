@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { tasks as tasksApi, browser as browserApi } from '@/lib/api'
-import type { CollectionTask, BrowserStatus } from '@/types'
+import type { CollectionTask, BrowserStatus, Platform } from '@/types'
 import { Plus, Play, Square, Trash2, AlertTriangle, Loader2 } from 'lucide-react'
 
 const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
@@ -17,10 +17,18 @@ const statusMap: Record<string, { label: string; variant: 'default' | 'secondary
   failed: { label: '失败', variant: 'destructive' },
 }
 
+const platformColors: Record<string, string> = {
+  boss: 'bg-green-100 text-green-800',
+  zhaopin: 'bg-blue-100 text-blue-800',
+  job51: 'bg-orange-100 text-orange-800',
+  liepin: 'bg-purple-100 text-purple-800',
+}
+
 export default function TasksPage() {
   const [taskList, setTaskList] = useState<CollectionTask[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ keyword: '', city: '全国', salary: '' })
+  const [form, setForm] = useState({ platform: 'boss', keyword: '', city: '全国', salary: '' })
+  const [platforms, setPlatforms] = useState<Platform[]>([])
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus | null>(null)
   const [error, setError] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -32,6 +40,7 @@ export default function TasksPage() {
   useEffect(() => {
     refresh()
     browserApi.status().then(setBrowserStatus).catch(() => {})
+    tasksApi.platforms().then(setPlatforms).catch(() => {})
   }, [])
 
   // Poll while any task is running
@@ -53,7 +62,7 @@ export default function TasksPage() {
     setError('')
     try {
       await tasksApi.create(form)
-      setForm({ keyword: '', city: '全国', salary: '' })
+      setForm({ platform: 'boss', keyword: '', city: '全国', salary: '' })
       setShowForm(false)
       refresh()
     } catch (e: any) {
@@ -82,6 +91,7 @@ export default function TasksPage() {
   }
 
   const browserReady = browserStatus?.launched && browserStatus?.logged_in
+  const getPlatformName = (key: string) => platforms.find(p => p.key === key)?.name || key
 
   return (
     <div>
@@ -114,7 +124,19 @@ export default function TasksPage() {
       {showForm && (
         <Card className="mb-4">
           <CardContent className="pt-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <Label>平台</Label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.platform}
+                  onChange={(e) => setForm({ ...form, platform: e.target.value })}
+                >
+                  {platforms.map(p => (
+                    <option key={p.key} value={p.key}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <Label>关键词 *</Label>
                 <Input
@@ -166,6 +188,9 @@ export default function TasksPage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-xs mr-2 ${platformColors[task.platform] || 'bg-gray-100 text-gray-800'}`}>
+                        {getPlatformName(task.platform)}
+                      </span>
                       {task.keyword}
                       <span className="text-sm font-normal text-muted-foreground ml-2">
                         {task.city}
