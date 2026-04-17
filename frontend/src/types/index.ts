@@ -85,7 +85,5 @@ export interface PaginatedResponse<T> {
 export interface BrowserStatus {
   launched: boolean
   logged_in: boolean
-  has_qrcode: boolean
-  polling_login: boolean
   headless: boolean
 }

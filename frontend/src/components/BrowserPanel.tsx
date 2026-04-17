@@ -7,25 +7,24 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { browser as browserApi } from '@/lib/api'
 import type { BrowserStatus } from '@/types'
-import { Monitor, Power, QrCode, RefreshCw, Loader2 } from 'lucide-react'
+import { Monitor, Power, LogIn, CheckCircle, Loader2 } from 'lucide-react'
 
 export default function BrowserPanel() {
   const [status, setStatus] = useState<BrowserStatus>({
     launched: false,
     logged_in: false,
-    has_qrcode: false,
-    polling_login: false,
     headless: false,
   })
   const [headless, setHeadless] = useState(false)
-  const [qrcode, setQrcode] = useState<string | null>(null)
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
+  const [loginOpened, setLoginOpened] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
       const s = await browserApi.status()
       setStatus(s)
+      if (s.logged_in) setLoginOpened(false)
     } catch {
       // ignore
     }
@@ -36,15 +35,6 @@ export default function BrowserPanel() {
     const timer = setInterval(fetchStatus, 3000)
     return () => clearInterval(timer)
   }, [fetchStatus])
-
-  // When polling login, also poll QR code refresh
-  useEffect(() => {
-    if (!status.polling_login) return
-    const timer = setInterval(async () => {
-      await fetchStatus()
-    }, 2000)
-    return () => clearInterval(timer)
-  }, [status.polling_login, fetchStatus])
 
   const handleLaunch = async () => {
     setLoading('launch')
@@ -61,12 +51,11 @@ export default function BrowserPanel() {
   const handleModeSwitch = async (newHeadless: boolean) => {
     setHeadless(newHeadless)
     if (!status.launched) return
-    // 浏览器已运行，需要重启切换模式
     setLoading('restart')
     setError('')
     try {
       await browserApi.restart(newHeadless)
-      setQrcode(null)
+      setLoginOpened(false)
       await fetchStatus()
     } catch (e: any) {
       setError(e.message || '切换模式失败')
@@ -74,30 +63,28 @@ export default function BrowserPanel() {
     setLoading('')
   }
 
-  const handleLogin = async () => {
+  const handleOpenLogin = async () => {
     setLoading('login')
     setError('')
     try {
-      const res = await browserApi.login()
-      if (res.qrcode) {
-        setQrcode(res.qrcode)
-      }
+      await browserApi.openLogin()
+      setLoginOpened(true)
       await fetchStatus()
     } catch (e: any) {
-      setError(e.message || '登录失败')
+      setError(e.message || '打开登录页失败')
     }
     setLoading('')
   }
 
-  const handleRefreshQR = async () => {
-    setLoading('qr')
+  const handleConfirmLogin = async () => {
+    setLoading('confirm')
+    setError('')
     try {
-      const res = await browserApi.qrcode()
-      if (res.qrcode) {
-        setQrcode(res.qrcode)
-      }
-    } catch {
-      // ignore
+      await browserApi.confirmLogin()
+      setLoginOpened(false)
+      await fetchStatus()
+    } catch (e: any) {
+      setError(e.message || '登录验证失败，请确认已在浏览器中完成登录')
     }
     setLoading('')
   }
@@ -107,7 +94,7 @@ export default function BrowserPanel() {
     setError('')
     try {
       await browserApi.close()
-      setQrcode(null)
+      setLoginOpened(false)
       await fetchStatus()
     } catch (e: any) {
       setError(e.message || '关闭失败')
@@ -146,7 +133,9 @@ export default function BrowserPanel() {
               {headless ? '无头模式 (Headless)' : '有头模式 (Headed)'}
             </Label>
             <p className="text-xs text-muted-foreground">
-              {headless ? '后台运行，不显示浏览器窗口' : '显示浏览器窗口，可观察操作过程'}
+              {headless
+                ? '后台运行，不显示浏览器窗口'
+                : '显示浏览器窗口，可观察操作过程（登录推荐使用有头模式）'}
             </p>
           </div>
           <Switch
@@ -175,14 +164,24 @@ export default function BrowserPanel() {
             </Button>
           ) : (
             <>
-              {!status.logged_in && (
-                <Button onClick={handleLogin} disabled={loading === 'login'}>
+              {!status.logged_in && !loginOpened && (
+                <Button onClick={handleOpenLogin} disabled={loading === 'login'}>
                   {loading === 'login' ? (
                     <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                   ) : (
-                    <QrCode className="h-4 w-4 mr-1" />
+                    <LogIn className="h-4 w-4 mr-1" />
                   )}
-                  扫码登录
+                  打开登录页面
+                </Button>
+              )}
+              {!status.logged_in && loginOpened && (
+                <Button onClick={handleConfirmLogin} disabled={loading === 'confirm'} variant="default">
+                  {loading === 'confirm' ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4 mr-1" />
+                  )}
+                  我已登录
                 </Button>
               )}
               <Button variant="destructive" onClick={handleClose} disabled={loading === 'close'}>
@@ -197,25 +196,21 @@ export default function BrowserPanel() {
           )}
         </div>
 
-        {/* QR Code display */}
-        {qrcode && !status.logged_in && (
-          <div className="flex flex-col items-center gap-3 p-4 border rounded-lg bg-white">
-            <p className="text-sm text-muted-foreground">请使用 Boss直聘/微信 扫描二维码登录</p>
-            <img src={qrcode} alt="QR Code" className="w-48 h-48 object-contain" />
-            <Button size="sm" variant="outline" onClick={handleRefreshQR} disabled={loading === 'qr'}>
-              {loading === 'qr' ? (
-                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3 mr-1" />
-              )}
-              刷新二维码
-            </Button>
-            {status.polling_login && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Loader2 className="h-3 w-3 animate-spin" /> 等待扫码...
+        {/* 手动登录提示 */}
+        {loginOpened && !status.logged_in && (
+          <Alert>
+            <AlertDescription>
+              <p className="font-medium mb-1">📱 请在浏览器窗口中完成登录</p>
+              <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                <li>浏览器已打开 Boss直聘登录页面</li>
+                <li>请在浏览器中扫码或输入账号密码完成登录</li>
+                <li>登录成功后，点击上方「我已登录」按钮</li>
+              </ol>
+              <p className="text-xs text-muted-foreground mt-2">
+                💡 登录信息会保存在 Chrome profile 中，下次启动无需重复登录
               </p>
-            )}
-          </div>
+            </AlertDescription>
+          </Alert>
         )}
 
         {status.logged_in && (

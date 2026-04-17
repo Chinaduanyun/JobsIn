@@ -94,12 +94,15 @@ export const browser = {
       `/browser/restart?headless=${headless}`,
       { method: 'POST' }
     ),
-  login: () =>
-    request<{ message: string; qrcode: string | null }>('/browser/login', {
+  openLogin: () =>
+    request<{ message: string; url: string }>('/browser/open-login', {
+      method: 'POST',
+    }),
+  confirmLogin: () =>
+    request<{ message: string } & import('@/types').BrowserStatus>('/browser/confirm-login', {
       method: 'POST',
     }),
   status: () => request<import('@/types').BrowserStatus>('/browser/status'),
-  qrcode: () => request<{ qrcode: string | null }>('/browser/qrcode'),
   close: () =>
     request<{ message: string }>('/browser/close', { method: 'POST' }),
 }

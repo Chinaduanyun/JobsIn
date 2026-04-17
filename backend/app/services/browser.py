@@ -1,62 +1,52 @@
 from __future__ import annotations
 
-"""Boss直聘浏览器管理 — 启动、登录、Cookie 持久化
+"""浏览器管理 — 系统 Chrome + 持久化 profile + 手动登录
 
-关键反检测策略:
-1. 优先使用系统 Chrome (channel="chrome")，比 Playwright 内置 Chromium 更隐蔽
-2. 注入全面的反检测 JS，拦截 CDP 端口探测
-3. 不使用固定 viewport，避免指纹特征
-4. about:blank 重定向自动重试
+核心策略 (来自 reference/security.ts 的发现):
+  zhipin.com 会主动检测 stealth patches，注入 JS 反而触发拦截。
+  因此:
+  1. 使用系统安装的 Chrome + 真实 user profile → 最像真人
+  2. 仅通过启动参数去掉 AutomationControlled
+  3. 不注入任何 stealth JS
+  4. 登录阶段完全手动：打开登录页 → 用户自行扫码 → 点「我已登录」
+  5. 持久化 profile 保留 cookie，下次启动无需重新登录
 """
 
 import asyncio
-import json
-import base64
-import random
 import logging
-import shutil
 from pathlib import Path
 from typing import Optional
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
 
-from app.services.anti_detection import STEALTH_JS, LAUNCH_ARGS, get_random_user_agent
+from app.services.anti_detection import LAUNCH_ARGS
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.zhipin.com"
 LOGIN_URL = f"{BASE_URL}/web/user/?ka=header-login"
-AUTH_DIR = Path(__file__).parent.parent.parent / "data"
-AUTH_FILE = AUTH_DIR / "auth_state.json"
-COOKIES_FILE = AUTH_DIR / "cookies.json"
+DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
-# 选择器
-SEL_LOGIN_BTN = "#header .user-nav a"
-SEL_QR_SWITCH = ".btn-sign-switch.ewm-switch"
-SEL_QR_IMG = ".qr-code-box .qr-img-box img"
-SEL_QR_REFRESH = ".qr-code-box .qr-img-box div > button"
-SEL_WX_LOGIN = ".wx-login-btn"
-SEL_WX_QR = ".mini-qrcode"
+# 已登录的标志选择器
 SEL_NAV_FIGURE = ".nav-figure"
 
 
 def _detect_system_chrome() -> Optional[str]:
-    """检测系统是否安装了 Chrome，返回路径或 None"""
-    import platform
-    if platform.system() == "Darwin":
-        chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        if Path(chrome_path).exists():
-            return chrome_path
-    elif platform.system() == "Linux":
-        for path in ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium-browser"]:
-            if Path(path).exists():
-                return path
-    # Windows 用 channel="chrome" 即可，不需要路径
+    """检测系统安装的 Chrome"""
+    import platform as _platform
+    if _platform.system() == "Darwin":
+        p = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        if Path(p).exists():
+            return p
+    elif _platform.system() == "Linux":
+        for p in ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium-browser"]:
+            if Path(p).exists():
+                return p
     return None
 
 
 class BossBrowser:
-    """单例浏览器管理器"""
+    """单例浏览器管理器 — 系统 Chrome + persistent profile"""
 
     def __init__(self):
         self._playwright: Optional[Playwright] = None
@@ -64,9 +54,9 @@ class BossBrowser:
         self._context: Optional[BrowserContext] = None
         self._page: Optional[Page] = None
         self._logged_in: bool = False
-        self._qrcode_data: Optional[str] = None
-        self._login_polling: bool = False
         self._headless: bool = True
+
+    # ── 属性 ──────────────────────────────────────────────
 
     @property
     def launched(self) -> bool:
@@ -84,249 +74,72 @@ class BossBrowser:
     def context(self) -> Optional[BrowserContext]:
         return self._context
 
+    # ── 启动 / 关闭 ──────────────────────────────────────
+
     async def launch(self, headless: bool = True) -> None:
         if self.launched:
             logger.info("浏览器已运行")
             return
 
-        AUTH_DIR.mkdir(parents=True, exist_ok=True)
-
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         self._playwright = await async_playwright().start()
 
-        # 策略: 优先用系统 Chrome，退而用 Playwright Chromium
         chrome_path = _detect_system_chrome()
-        user_data_dir = str(AUTH_DIR / "chrome_profile")
+        user_data_dir = str(DATA_DIR / "chrome_profile")
         Path(user_data_dir).mkdir(parents=True, exist_ok=True)
 
-        # persistent context 参数（合并 launch + context）
         ctx_kwargs = {
             "headless": headless,
             "args": LAUNCH_ARGS,
-            "user_agent": get_random_user_agent(),
             "locale": "zh-CN",
             "timezone_id": "Asia/Shanghai",
-            "viewport": None,
-            "bypass_csp": True,
+            "viewport": None,           # 用窗口实际大小，不固定
             "ignore_https_errors": True,
+            # 不设 user_agent → 让 Chrome 用自己真实的 UA
+            # 不设 bypass_csp → 避免触发 CSP 检测
+            # 不注入 storage_state → cookie 全靠 profile 目录
         }
 
-        # 尝试加载已有的 auth state
-        if AUTH_FILE.exists():
-            try:
-                ctx_kwargs["storage_state"] = str(AUTH_FILE)
-                logger.info("加载已有登录状态")
-            except Exception:
-                logger.warning("登录状态文件损坏，忽略")
-
-        # 尝试按优先级启动 (persistent context = 更真实的浏览器配置)
+        # 按优先级尝试启动
         strategies = []
         if chrome_path:
             strategies.append(("系统 Chrome", {"executable_path": chrome_path}))
         strategies.append(("channel=chrome", {"channel": "chrome"}))
         strategies.append(("Playwright Chromium", {}))
 
-        for strategy, extra_kwargs in strategies:
+        for name, extra in strategies:
             try:
-                merged = {**ctx_kwargs, **extra_kwargs}
+                merged = {**ctx_kwargs, **extra}
                 self._context = await self._playwright.chromium.launch_persistent_context(
                     user_data_dir, **merged
                 )
-                # persistent context 直接返回 context，browser 通过 context 获取
                 self._browser = self._context.browser
-                logger.info("使用 %s 启动成功 (persistent context)", strategy)
+                logger.info("使用 %s 启动成功", name)
                 break
             except Exception as e:
-                logger.warning("%s 启动失败: %s", strategy, e)
+                logger.warning("%s 启动失败: %s", name, e)
                 self._context = None
                 self._browser = None
 
         if self._context is None:
             raise RuntimeError("所有浏览器启动策略均失败")
 
-        # 注入反检测脚本到每一个新页面
-        await self._context.add_init_script(STEALTH_JS)
+        # 不注入任何 stealth JS — zhipin.com 会检测并拒绝
 
-        # persistent context 自带一个 page，如果没有则新建
         pages = self._context.pages
         self._page = pages[0] if pages else await self._context.new_page()
         self._headless = headless
         logger.info("浏览器启动成功 (headless=%s)", headless)
 
-        # 检测是否已登录
+        # 用 profile 里的 cookie 检测是否已登录
         await self._check_login_status()
 
     async def restart(self, headless: bool = True) -> None:
-        """关闭当前浏览器，以新模式重新启动"""
         await self.close()
-        await asyncio.sleep(1)  # 等待资源释放
+        await asyncio.sleep(1)
         await self.launch(headless=headless)
 
-    async def _check_login_status(self) -> bool:
-        """访问首页检查是否已登录，带 about:blank 重定向重试"""
-        if not self._page:
-            return False
-        for attempt in range(3):
-            try:
-                await self._page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
-                await asyncio.sleep(2)
-
-                # 检查是否被重定向到 about:blank
-                if self._page.url == "about:blank":
-                    logger.warning("检测到 about:blank 重定向 (尝试 %d/3)，等待后重试...", attempt + 1)
-                    await asyncio.sleep(3 + attempt * 2)
-                    continue
-
-                nav = self._page.locator(SEL_NAV_FIGURE)
-                self._logged_in = await nav.is_visible(timeout=3000)
-                if self._logged_in:
-                    logger.info("检测到已登录状态")
-                return self._logged_in
-            except Exception as e:
-                logger.warning("登录状态检查失败 (尝试 %d/3): %s", attempt + 1, e)
-                await asyncio.sleep(2)
-        return False
-
-    async def start_login(self) -> Optional[str]:
-        """发起 QR 码登录，返回二维码图片的 base64 或 URL"""
-        if not self._page:
-            raise RuntimeError("浏览器未启动")
-        if self._logged_in:
-            return None
-
-        # 导航到登录页
-        await self._page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=15000)
-        await asyncio.sleep(2)
-
-        # 点击切换到 QR 码模式
-        try:
-            qr_switch = self._page.locator(SEL_QR_SWITCH)
-            if await qr_switch.is_visible(timeout=3000):
-                await qr_switch.click()
-                await asyncio.sleep(1)
-        except Exception:
-            pass
-
-        # 提取 QR 码
-        self._qrcode_data = await self._extract_qrcode()
-        if self._qrcode_data:
-            # 启动后台轮询等待扫码
-            if not self._login_polling:
-                asyncio.create_task(self._poll_login_status())
-            return self._qrcode_data
-
-        # 尝试微信登录
-        try:
-            wx_btn = self._page.locator(SEL_WX_LOGIN)
-            if await wx_btn.is_visible(timeout=2000):
-                await wx_btn.click(delay=random.randint(50, 200))
-                await asyncio.sleep(2)
-                wx_qr = self._page.locator(SEL_WX_QR)
-                if await wx_qr.is_visible(timeout=5000):
-                    src = await wx_qr.get_attribute("src")
-                    if src:
-                        self._qrcode_data = src if src.startswith("http") else f"{BASE_URL}{src}"
-                        if not self._login_polling:
-                            asyncio.create_task(self._poll_login_status())
-                        return self._qrcode_data
-        except Exception:
-            pass
-
-        return None
-
-    async def _extract_qrcode(self) -> Optional[str]:
-        """提取页面上的二维码图片"""
-        if not self._page:
-            return None
-        try:
-            qr_img = self._page.locator(SEL_QR_IMG)
-            await qr_img.wait_for(state="visible", timeout=5000)
-            src = await qr_img.get_attribute("src")
-            if not src:
-                return None
-            if src.startswith("data:"):
-                return src
-            if not src.startswith("http"):
-                src = f"{BASE_URL}{src}"
-            # 下载图片并转 base64 返回给前端
-            resp = await self._page.context.request.get(src)
-            body = await resp.body()
-            b64 = base64.b64encode(body).decode()
-            return f"data:image/png;base64,{b64}"
-        except Exception as e:
-            logger.warning("提取二维码失败: %s", e)
-            return None
-
-    async def _poll_login_status(self) -> None:
-        """后台轮询检测登录状态"""
-        self._login_polling = True
-        try:
-            for _ in range(120):  # 最多等 2 分钟
-                await asyncio.sleep(1)
-                if not self._page or not self.launched:
-                    break
-                try:
-                    # 检查是否跳转离开了登录页
-                    url = self._page.url
-                    if "web/user" not in url and "zhipin.com" in url:
-                        self._logged_in = True
-                        await self._save_auth()
-                        logger.info("扫码登录成功（页面跳转）")
-                        break
-                    # 检查头像是否出现
-                    nav = self._page.locator(SEL_NAV_FIGURE)
-                    if await nav.is_visible(timeout=500):
-                        self._logged_in = True
-                        await self._save_auth()
-                        logger.info("扫码登录成功（头像可见）")
-                        break
-                except Exception:
-                    continue
-        finally:
-            self._login_polling = False
-
-    async def refresh_qrcode(self) -> Optional[str]:
-        """刷新过期的二维码"""
-        if not self._page:
-            return None
-        try:
-            refresh_btn = self._page.locator(SEL_QR_REFRESH)
-            if await refresh_btn.is_visible(timeout=2000):
-                await refresh_btn.click()
-                await asyncio.sleep(2)
-            self._qrcode_data = await self._extract_qrcode()
-            return self._qrcode_data
-        except Exception:
-            return None
-
-    async def _save_auth(self) -> None:
-        """保存登录状态"""
-        if not self._context:
-            return
-        try:
-            AUTH_DIR.mkdir(parents=True, exist_ok=True)
-            await self._context.storage_state(path=str(AUTH_FILE))
-            logger.info("登录状态已保存: %s", AUTH_FILE)
-        except Exception as e:
-            logger.warning("保存登录状态失败: %s", e)
-
-    def get_status(self) -> dict:
-        return {
-            "launched": self.launched,
-            "logged_in": self._logged_in,
-            "has_qrcode": self._qrcode_data is not None,
-            "polling_login": self._login_polling,
-            "headless": self._headless,
-        }
-
-    def get_qrcode(self) -> Optional[str]:
-        return self._qrcode_data
-
     async def close(self) -> None:
-        """关闭浏览器，释放资源"""
-        if self._logged_in and self._context:
-            await self._save_auth()
-        # persistent context: 关闭 context 就等于关闭 browser
-        # 不需要单独关闭 page（context.close 会处理）
         self._page = None
         if self._context:
             try:
@@ -342,9 +155,81 @@ class BossBrowser:
                 pass
             self._playwright = None
         self._logged_in = False
-        self._qrcode_data = None
-        self._login_polling = False
         logger.info("浏览器已关闭")
+
+    # ── 登录 ──────────────────────────────────────────────
+
+    async def open_login_page(self) -> str:
+        """打开登录页面，让用户手动登录。返回当前页面 URL。"""
+        if not self._page:
+            raise RuntimeError("浏览器未启动")
+        if self._logged_in:
+            return self._page.url
+
+        try:
+            await self._page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=15000)
+            await asyncio.sleep(2)
+        except Exception as e:
+            logger.warning("打开登录页失败: %s", e)
+
+        return self._page.url
+
+    async def confirm_login(self) -> bool:
+        """用户手动登录完成后调用，验证登录状态。"""
+        if not self._page:
+            return False
+
+        # 先尝试访问首页看 cookie 是否生效
+        try:
+            await self._page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
+            await asyncio.sleep(2)
+        except Exception as e:
+            logger.warning("访问首页失败: %s", e)
+            return False
+
+        # 检查登录标志
+        try:
+            nav = self._page.locator(SEL_NAV_FIGURE)
+            self._logged_in = await nav.is_visible(timeout=5000)
+        except Exception:
+            self._logged_in = False
+
+        if self._logged_in:
+            logger.info("登录确认成功")
+        else:
+            logger.warning("登录确认失败 — 未检测到已登录状态")
+
+        return self._logged_in
+
+    async def _check_login_status(self) -> bool:
+        """启动后检查 profile 中的 cookie 是否已登录"""
+        if not self._page:
+            return False
+        try:
+            await self._page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
+            await asyncio.sleep(2)
+
+            if self._page.url == "about:blank":
+                logger.warning("首页被重定向到 about:blank")
+                return False
+
+            nav = self._page.locator(SEL_NAV_FIGURE)
+            self._logged_in = await nav.is_visible(timeout=3000)
+            if self._logged_in:
+                logger.info("profile 中检测到已登录状态")
+            return self._logged_in
+        except Exception as e:
+            logger.warning("登录状态检查失败: %s", e)
+            return False
+
+    # ── 状态 ──────────────────────────────────────────────
+
+    def get_status(self) -> dict:
+        return {
+            "launched": self.launched,
+            "logged_in": self._logged_in,
+            "headless": self._headless,
+        }
 
 
 # 全局单例
