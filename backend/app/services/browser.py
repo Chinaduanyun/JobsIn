@@ -66,6 +66,7 @@ class BossBrowser:
         self._logged_in: bool = False
         self._qrcode_data: Optional[str] = None
         self._login_polling: bool = False
+        self._headless: bool = True
 
     @property
     def launched(self) -> bool:
@@ -94,33 +95,40 @@ class BossBrowser:
 
         # 策略: 优先用系统 Chrome，退而用 Playwright Chromium
         chrome_path = _detect_system_chrome()
+
+        # 用系统 Chrome 时需要独立 user-data-dir，避免和用户浏览器冲突
+        user_data_dir = AUTH_DIR / "chrome_profile"
+        user_data_dir.mkdir(parents=True, exist_ok=True)
+
         launch_kwargs = {
             "headless": headless,
-            "args": LAUNCH_ARGS,
+            "args": LAUNCH_ARGS + [f"--user-data-dir={user_data_dir}"],
         }
-        if chrome_path:
-            launch_kwargs["executable_path"] = chrome_path
-            logger.info("使用系统 Chrome: %s", chrome_path)
-        else:
-            # 尝试 channel="chrome"（Windows 下有效）
+
+        # 尝试按优先级启动
+        for strategy, kwargs in [
+            ("系统 Chrome", {**launch_kwargs, "executable_path": chrome_path} if chrome_path else None),
+            ("channel=chrome", {**launch_kwargs, "channel": "chrome"}),
+            ("Playwright Chromium", launch_kwargs),
+        ]:
+            if kwargs is None:
+                continue
             try:
-                self._browser = await self._playwright.chromium.launch(
-                    channel="chrome", **launch_kwargs
-                )
-                logger.info("使用 channel=chrome 启动")
-            except Exception:
+                self._browser = await self._playwright.chromium.launch(**kwargs)
+                logger.info("使用 %s 启动成功", strategy)
+                break
+            except Exception as e:
+                logger.warning("%s 启动失败: %s", strategy, e)
                 self._browser = None
 
         if self._browser is None:
-            self._browser = await self._playwright.chromium.launch(**launch_kwargs)
-            if not chrome_path:
-                logger.info("使用 Playwright 内置 Chromium")
+            raise RuntimeError("所有浏览器启动策略均失败")
 
         context_opts: dict = {
             "user_agent": get_random_user_agent(),
             "locale": "zh-CN",
             "timezone_id": "Asia/Shanghai",
-            "no_viewport": True,  # 不固定 viewport，避免指纹检测
+            "viewport": None,  # 不固定 viewport，避免指纹检测
             "bypass_csp": True,
             "ignore_https_errors": True,
         }
@@ -138,10 +146,17 @@ class BossBrowser:
         await self._context.add_init_script(STEALTH_JS)
 
         self._page = await self._context.new_page()
+        self._headless = headless
         logger.info("浏览器启动成功 (headless=%s)", headless)
 
         # 检测是否已登录
         await self._check_login_status()
+
+    async def restart(self, headless: bool = True) -> None:
+        """关闭当前浏览器，以新模式重新启动"""
+        await self.close()
+        await asyncio.sleep(1)  # 等待资源释放
+        await self.launch(headless=headless)
 
     async def _check_login_status(self) -> bool:
         """访问首页检查是否已登录，带 about:blank 重定向重试"""
@@ -297,6 +312,7 @@ class BossBrowser:
             "logged_in": self._logged_in,
             "has_qrcode": self._qrcode_data is not None,
             "polling_login": self._login_polling,
+            "headless": self._headless,
         }
 
     def get_qrcode(self) -> Optional[str]:

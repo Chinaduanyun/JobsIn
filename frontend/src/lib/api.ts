@@ -88,6 +88,11 @@ export const browser = {
       `/browser/launch?headless=${headless}`,
       { method: 'POST' }
     ),
+  restart: (headless = true) =>
+    request<{ message: string } & import('@/types').BrowserStatus>(
+      `/browser/restart?headless=${headless}`,
+      { method: 'POST' }
+    ),
   login: () =>
     request<{ message: string; qrcode: string | null }>('/browser/login', {
       method: 'POST',

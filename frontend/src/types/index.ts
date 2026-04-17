@@ -80,4 +80,5 @@ export interface BrowserStatus {
   logged_in: boolean
   has_qrcode: boolean
   polling_login: boolean
+  headless: boolean
 }

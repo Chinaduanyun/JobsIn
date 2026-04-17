@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { browser as browserApi } from '@/lib/api'
 import type { BrowserStatus } from '@/types'
 import { Monitor, Power, QrCode, RefreshCw, Loader2 } from 'lucide-react'
@@ -13,7 +15,9 @@ export default function BrowserPanel() {
     logged_in: false,
     has_qrcode: false,
     polling_login: false,
+    headless: false,
   })
+  const [headless, setHeadless] = useState(false)
   const [qrcode, setQrcode] = useState<string | null>(null)
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
@@ -46,10 +50,26 @@ export default function BrowserPanel() {
     setLoading('launch')
     setError('')
     try {
-      await browserApi.launch(false) // headless=false for QR login
+      await browserApi.launch(headless)
       await fetchStatus()
     } catch (e: any) {
       setError(e.message || '启动失败')
+    }
+    setLoading('')
+  }
+
+  const handleModeSwitch = async (newHeadless: boolean) => {
+    setHeadless(newHeadless)
+    if (!status.launched) return
+    // 浏览器已运行，需要重启切换模式
+    setLoading('restart')
+    setError('')
+    try {
+      await browserApi.restart(newHeadless)
+      setQrcode(null)
+      await fetchStatus()
+    } catch (e: any) {
+      setError(e.message || '切换模式失败')
     }
     setLoading('')
   }
@@ -117,6 +137,30 @@ export default function BrowserPanel() {
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
+        )}
+
+        {/* Headed / Headless 切换 */}
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="space-y-0.5">
+            <Label htmlFor="headless-switch" className="text-sm font-medium">
+              {headless ? '无头模式 (Headless)' : '有头模式 (Headed)'}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {headless ? '后台运行，不显示浏览器窗口' : '显示浏览器窗口，可观察操作过程'}
+            </p>
+          </div>
+          <Switch
+            id="headless-switch"
+            checked={!headless}
+            onCheckedChange={(checked) => handleModeSwitch(!checked)}
+            disabled={loading === 'restart'}
+          />
+        </div>
+
+        {loading === 'restart' && (
+          <p className="text-xs text-muted-foreground flex items-center gap-1">
+            <Loader2 className="h-3 w-3 animate-spin" /> 正在切换浏览器模式...
+          </p>
         )}
 
         <div className="flex gap-2">

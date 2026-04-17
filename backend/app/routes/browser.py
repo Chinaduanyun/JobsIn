@@ -15,6 +15,16 @@ async def launch_browser(headless: bool = True):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/restart")
+async def restart_browser(headless: bool = True):
+    """关闭并以新模式重启浏览器"""
+    try:
+        await boss_browser.restart(headless=headless)
+        return {"message": f"浏览器已重启 ({'无头' if headless else '有头'}模式)", **boss_browser.get_status()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/login")
 async def start_login():
     """发起 QR 码登录流程"""
