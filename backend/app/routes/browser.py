@@ -7,9 +7,10 @@ router = APIRouter()
 
 @router.post("/launch")
 async def launch_browser(headless: bool = True):
+    """启动采集模式的浏览器 (CDP 连接)"""
     try:
         await boss_browser.launch(headless=headless)
-        return {"message": "浏览器启动成功", **boss_browser.get_status()}
+        return {"message": "采集浏览器启动成功", **boss_browser.get_status()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -25,24 +26,23 @@ async def restart_browser(headless: bool = True):
 
 @router.post("/open-login")
 async def open_login():
-    """打开登录页面，让用户手动登录"""
-    if not boss_browser.launched:
-        raise HTTPException(status_code=400, detail="浏览器未启动")
+    """打开纯 Chrome 登录页面 (无 CDP，不会被检测)"""
     if boss_browser.logged_in:
         return {"message": "已登录", "url": ""}
-    url = await boss_browser.open_login_page()
-    return {"message": "请在浏览器中完成登录", "url": url}
+    try:
+        url = await boss_browser.open_login_page()
+        return {"message": "已打开纯 Chrome，请在浏览器中完成登录", "url": url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/confirm-login")
 async def confirm_login():
-    """用户手动登录完成后，确认登录状态"""
-    if not boss_browser.launched:
-        raise HTTPException(status_code=400, detail="浏览器未启动")
+    """验证登录状态 — 会关闭纯 Chrome 并短暂用 CDP 验证 cookies"""
     success = await boss_browser.confirm_login()
     if success:
         return {"message": "登录成功", **boss_browser.get_status()}
-    raise HTTPException(status_code=400, detail="登录验证失败，请确认已在浏览器中完成登录")
+    raise HTTPException(status_code=400, detail="登录验证失败，请确认已在浏览器中完成登录后再点击此按钮")
 
 
 @router.get("/status")

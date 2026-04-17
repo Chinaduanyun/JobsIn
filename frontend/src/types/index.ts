@@ -86,4 +86,5 @@ export interface BrowserStatus {
   launched: boolean
   logged_in: boolean
   headless: boolean
+  mode: string
 }
