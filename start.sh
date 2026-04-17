@@ -1,22 +1,35 @@
 #!/bin/bash
 set -e
 
-echo "=== 启动 FindJobs ==="
+DIR="$(cd "$(dirname "$0")" && pwd)"
+echo "=== FindJobs 启动 ==="
 
-# 后端
-cd "$(dirname "$0")/backend"
-uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-BACKEND_PID=$!
-echo "后端已启动 (PID: $BACKEND_PID)"
+# 检查依赖
+command -v python3 >/dev/null 2>&1 || { echo "需要 python3"; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "需要 node"; exit 1; }
 
-# 前端开发模式
-cd ../frontend
-if [ -d "dist" ]; then
-    echo "前端使用生产构建，通过后端 :8000 访问"
-else
-    npm run dev &
-    FRONTEND_PID=$!
-    echo "前端开发服务器已启动 (PID: $FRONTEND_PID)"
+# 安装后端依赖（如果没装过）
+if ! python3 -c "import fastapi" 2>/dev/null; then
+    echo "安装后端依赖..."
+    pip install -r "$DIR/backend/requirements.txt" -q
 fi
 
-wait
+# 安装前端依赖（如果没装过）
+if [ ! -d "$DIR/frontend/node_modules" ]; then
+    echo "安装前端依赖..."
+    cd "$DIR/frontend" && npm install --silent
+fi
+
+# 构建前端（如果没构建过）
+if [ ! -d "$DIR/frontend/dist" ]; then
+    echo "构建前端..."
+    cd "$DIR/frontend" && npx vite build
+fi
+
+# 启动后端（服务前端静态文件）
+cd "$DIR/backend"
+echo ""
+echo "✅ 启动完成！访问 http://localhost:27788"
+echo "   按 Ctrl+C 停止"
+echo ""
+exec uvicorn app.main:app --host 0.0.0.0 --port 27788
