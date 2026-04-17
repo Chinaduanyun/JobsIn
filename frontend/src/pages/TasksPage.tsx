@@ -47,7 +47,10 @@ export default function TasksPage() {
   useEffect(() => {
     const hasRunning = taskList.some(t => t.status === 'running')
     if (hasRunning && !pollRef.current) {
-      pollRef.current = setInterval(refresh, 3000)
+      pollRef.current = setInterval(() => {
+        refresh()
+        browserApi.status().then(setBrowserStatus).catch(() => {})
+      }, 3000)
     } else if (!hasRunning && pollRef.current) {
       clearInterval(pollRef.current)
       pollRef.current = null
@@ -110,6 +113,16 @@ export default function TasksPage() {
             {!browserStatus?.logged_in
               ? '未登录，请先到「系统设置」完成登录'
               : 'Cookies 不可用，请到「系统设置」刷新 Cookies'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Security check warning */}
+      {(browserStatus as any)?.security_check && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            ⚠️ Boss 直聘安全验证触发！请在弹出的 Chrome 浏览器中完成验证后，采集会自动继续。
           </AlertDescription>
         </Alert>
       )}
