@@ -159,8 +159,11 @@ export const applications = {
       method: 'POST',
       body: JSON.stringify({ job_ids: jobIds, greeting_texts: greetingTexts }),
     }),
-  list: (page = 1) =>
-    request<{ items: any[]; page: number; size: number }>(`/applications?page=${page}`),
+  list: (page = 1, status?: string) => {
+    const q = new URLSearchParams({ page: String(page) })
+    if (status) q.set('status', status)
+    return request<{ items: any[]; page: number; size: number }>(`/applications?${q}`)
+  },
   today: () => request<{ count: number }>('/applications/today'),
   // 批次
   listBatches: () =>

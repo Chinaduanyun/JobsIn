@@ -42,6 +42,7 @@ interface BatchItem {
 }
 
 type ViewMode = 'all' | 'individual' | 'batches'
+type StatusFilter = '' | 'sent' | 'recorded' | 'failed' | 'pending' | 'sending' | 'paused'
 
 export default function ApplicationsPage() {
   const [items, setItems] = useState<ApplicationItem[]>([])
@@ -50,6 +51,7 @@ export default function ApplicationsPage() {
   const [loading, setLoading] = useState(true)
   const [todayCount, setTodayCount] = useState(0)
   const [viewMode, setViewMode] = useState<ViewMode>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
   const [expandedBatches, setExpandedBatches] = useState<Set<number>>(new Set())
   const [batchDetails, setBatchDetails] = useState<Record<number, ApplicationItem[]>>({})
 
@@ -57,7 +59,7 @@ export default function ApplicationsPage() {
     setLoading(true)
     try {
       const [res, today, batchRes] = await Promise.all([
-        appsApi.list(p),
+        appsApi.list(p, statusFilter || undefined),
         appsApi.today(),
         appsApi.listBatches(),
       ])
@@ -75,7 +77,7 @@ export default function ApplicationsPage() {
     fetchData(page)
     const timer = setInterval(() => fetchData(page), 10000)
     return () => clearInterval(timer)
-  }, [page])
+  }, [page, statusFilter])
 
   const toggleBatch = async (batchId: number) => {
     const next = new Set(expandedBatches)
@@ -314,6 +316,26 @@ export default function ApplicationsPage() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">投递管理</h2>
         <div className="flex items-center gap-3">
+          {/* 状态筛选 */}
+          <div className="flex border rounded-md overflow-hidden text-sm">
+            {([
+              { value: '' as StatusFilter, label: '全部' },
+              { value: 'sent' as StatusFilter, label: '已投递' },
+              { value: 'recorded' as StatusFilter, label: '已记录' },
+              { value: 'sending' as StatusFilter, label: '发送中' },
+              { value: 'failed' as StatusFilter, label: '失败' },
+              { value: 'paused' as StatusFilter, label: '已暂停' },
+            ]).map(opt => (
+              <button
+                key={opt.value}
+                className={`px-2.5 py-1 ${statusFilter === opt.value ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}
+                onClick={() => { setStatusFilter(opt.value); setPage(1) }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {/* 视图模式 */}
           <div className="flex border rounded-md overflow-hidden text-sm">
             {(['all', 'individual', 'batches'] as ViewMode[]).map(mode => (
               <button

@@ -186,11 +186,14 @@ async def _retry_single(app_id: int, job, greeting_text: str):
 async def list_applications(
     page: int = 1,
     size: int = 20,
+    status: str | None = None,
     session: AsyncSession = Depends(get_session),
 ):
+    stmt = select(Application)
+    if status:
+        stmt = stmt.where(Application.status == status)
     stmt = (
-        select(Application)
-        .order_by(Application.created_at.desc())
+        stmt.order_by(Application.created_at.desc())
         .offset((page - 1) * size)
         .limit(size)
     )
