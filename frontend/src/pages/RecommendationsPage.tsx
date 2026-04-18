@@ -7,7 +7,7 @@ import { jobs as jobsApi, applications as appsApi } from '@/lib/api'
 import type { Job, PaginatedResponse } from '@/types'
 import {
   Brain, MessageSquare, ExternalLink, ChevronLeft, ChevronRight,
-  Star, Clock,
+  Star, Clock, Filter,
 } from 'lucide-react'
 import JobDetailDrawer from '@/components/JobDetailDrawer'
 
@@ -32,10 +32,11 @@ export default function RecommendationsPage() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [excludeApplied, setExcludeApplied] = useState(false)
 
   const fetchRecommendations = (p: number) => {
     setLoading(true)
-    jobsApi.listRecommendations({ page: p, page_size: 20 })
+    jobsApi.listRecommendations({ page: p, page_size: 20, exclude_applied: excludeApplied })
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -43,7 +44,7 @@ export default function RecommendationsPage() {
 
   useEffect(() => {
     fetchRecommendations(page)
-  }, [page])
+  }, [page, excludeApplied])
 
   const handleJobClick = async (job: Job) => {
     try {
@@ -72,9 +73,19 @@ export default function RecommendationsPage() {
           <Star className="h-6 w-6 text-yellow-500" />
           <h2 className="text-2xl font-bold">AI 智能推荐</h2>
         </div>
-        <span className="text-sm text-muted-foreground">
-          按 AI 匹配分从高到低排列，仅显示已分析的岗位
-        </span>
+        <div className="flex items-center gap-3">
+          <Button
+            variant={excludeApplied ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => { setExcludeApplied(!excludeApplied); setPage(1) }}
+          >
+            <Filter className="h-4 w-4 mr-1" />
+            {excludeApplied ? '显示全部' : '隐藏已投递'}
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            按 AI 匹配分从高到低排列，仅显示已分析的岗位
+          </span>
+        </div>
       </div>
 
       {data.items.length === 0 && !loading ? (

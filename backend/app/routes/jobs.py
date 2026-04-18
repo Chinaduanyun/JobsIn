@@ -103,6 +103,7 @@ async def list_jobs(
 async def list_recommendations(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    exclude_applied: bool = Query(False, description="排除已投递的岗位"),
     session: AsyncSession = Depends(get_session),
 ):
     """AI 推荐列表：只返回有分析结果的岗位，按 overall_score 降序"""
@@ -121,7 +122,16 @@ async def list_recommendations(
         select(Job, JobAnalysis)
         .join(latest_analysis, Job.id == latest_analysis.c.job_id)
         .join(JobAnalysis, JobAnalysis.id == latest_analysis.c.latest_id)
-        .order_by(desc(JobAnalysis.overall_score))
+    )
+
+    if exclude_applied:
+        applied_job_ids = select(Application.job_id).where(
+            Application.status.in_(["sent", "recorded", "sending"])
+        ).distinct()
+        stmt = stmt.where(~Job.id.in_(applied_job_ids))
+
+    stmt = (
+        stmt.order_by(desc(JobAnalysis.overall_score))
         .offset((page - 1) * size)
         .limit(size)
     )
@@ -133,6 +143,11 @@ async def list_recommendations(
         .select_from(Job)
         .where(Job.id.in_(select(JobAnalysis.job_id).distinct()))
     )
+    if exclude_applied:
+        applied_job_ids = select(Application.job_id).where(
+            Application.status.in_(["sent", "recorded", "sending"])
+        ).distinct()
+        count_stmt = count_stmt.where(~Job.id.in_(applied_job_ids))
     total = (await session.execute(count_stmt)).scalar()
 
     job_ids = [j.id for j, _ in rows]

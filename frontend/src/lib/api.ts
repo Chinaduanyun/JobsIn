@@ -24,10 +24,11 @@ export const jobs = {
       `/jobs?${q}`
     )
   },
-  listRecommendations: (params?: { page?: number; page_size?: number }) => {
+  listRecommendations: (params?: { page?: number; page_size?: number; exclude_applied?: boolean }) => {
     const q = new URLSearchParams()
     if (params?.page) q.set('page', String(params.page))
     if (params?.page_size) q.set('size', String(params.page_size))
+    if (params?.exclude_applied) q.set('exclude_applied', 'true')
     return request<import('@/types').PaginatedResponse<import('@/types').Job>>(
       `/jobs/recommendations?${q}`
     )
