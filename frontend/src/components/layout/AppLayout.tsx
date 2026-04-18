@@ -15,7 +15,7 @@ const navItems = [
   { to: '/recommendations', icon: Star, label: 'AI 推荐' },
   { to: '/applications', icon: Send, label: '投递管理' },
   { to: '/tasks', icon: ListTodo, label: '采集任务' },
-  { to: '/resumes', icon: FileText, label: '简历管理' },
+  { to: '/resumes', icon: FileText, label: '我的简历' },
 ]
 
 export default function AppLayout() {

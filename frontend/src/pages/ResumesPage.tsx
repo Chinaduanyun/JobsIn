@@ -7,184 +7,117 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { resumes as resumesApi } from '@/lib/api'
 import type { Resume } from '@/types'
-import { Plus, Star, Trash2, Save } from 'lucide-react'
+import { Save, FileText, CheckCircle2 } from 'lucide-react'
 
 export default function ResumesPage() {
-  const [list, setList] = useState<Resume[]>([])
-  const [editing, setEditing] = useState<Resume | null>(null)
-  const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ name: '', content: '' })
+  const [resume, setResume] = useState<Resume | null>(null)
+  const [name, setName] = useState('我的简历')
+  const [content, setContent] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  const refresh = () => {
-    resumesApi.list().then(setList).catch(() => {})
+  useEffect(() => {
+    resumesApi.list().then((list) => {
+      if (list.length > 0) {
+        // 优先用激活的，否则用第一个
+        const active = list.find((r: Resume) => r.is_active) || list[0]
+        setResume(active)
+        setName(active.name)
+        setContent(active.content)
+      }
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  const handleSave = async () => {
+    if (!content.trim()) return
+    setSaving(true)
+    try {
+      if (resume) {
+        await resumesApi.update(resume.id, { name, content })
+      } else {
+        const created = await resumesApi.create({ name, content })
+        setResume(created)
+      }
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false)
+    }
   }
 
-  useEffect(() => { refresh() }, [])
-
-  const handleCreate = async () => {
-    if (!form.name.trim() || !form.content.trim()) return
-    await resumesApi.create(form)
-    setForm({ name: '', content: '' })
-    setShowCreate(false)
-    refresh()
-  }
-
-  const handleUpdate = async () => {
-    if (!editing) return
-    await resumesApi.update(editing.id, {
-      name: editing.name,
-      content: editing.content,
-    })
-    setEditing(null)
-    refresh()
-  }
-
-  const handleActivate = async (id: number) => {
-    await resumesApi.activate(id)
-    refresh()
-  }
-
-  const handleDelete = async (id: number) => {
-    await resumesApi.delete(id)
-    refresh()
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground">
+        加载中...
+      </div>
+    )
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold">简历管理</h2>
-        <Button onClick={() => setShowCreate(!showCreate)}>
-          <Plus className="h-4 w-4 mr-1" /> 新建简历
-        </Button>
-      </div>
-
-      <p className="text-sm text-muted-foreground mb-4">
-        简历使用 Markdown 纯文本格式，AI 会根据此内容进行岗位匹配分析
-      </p>
-
-      {/* Create form */}
-      {showCreate && (
-        <Card className="mb-4">
-          <CardContent className="pt-4 space-y-3">
-            <div>
-              <Label>简历名称</Label>
-              <Input
-                placeholder="如: 后端开发简历"
-                value={form.name}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, name: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label>简历内容 (Markdown)</Label>
-              <Textarea
-                placeholder="# 个人信息&#10;姓名: ...&#10;&#10;# 工作经历&#10;..."
-                rows={12}
-                value={form.content}
-                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setForm({ ...form, content: e.target.value })}
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={handleCreate}>创建</Button>
-              <Button variant="outline" onClick={() => setShowCreate(false)}>
-                取消
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Edit form */}
-      {editing && (
-        <Card className="mb-4 border-primary">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">编辑简历</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <Label>简历名称</Label>
-              <Input
-                value={editing.name}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setEditing({ ...editing, name: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label>简历内容 (Markdown)</Label>
-              <Textarea
-                rows={12}
-                value={editing.content}
-                onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
-                  setEditing({ ...editing, content: e.target.value })
-                }
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={handleUpdate}>
-                <Save className="h-4 w-4 mr-1" /> 保存
-              </Button>
-              <Button variant="outline" onClick={() => setEditing(null)}>
-                取消
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Resume list */}
-      <div className="space-y-3">
-        {list.length === 0 && !showCreate ? (
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              暂无简历，请先创建一份
-            </CardContent>
-          </Card>
-        ) : (
-          list.map((r) => (
-            <Card key={r.id}>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    {r.name}
-                    {r.is_active && (
-                      <Badge variant="default">当前使用</Badge>
-                    )}
-                  </CardTitle>
-                  <div className="flex gap-1">
-                    {!r.is_active && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleActivate(r.id)}
-                      >
-                        <Star className="h-3 w-3 mr-1" /> 设为活跃
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setEditing(r)}
-                    >
-                      编辑
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDelete(r.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <pre className="text-xs text-muted-foreground whitespace-pre-wrap max-h-32 overflow-hidden">
-                  {r.content.slice(0, 300)}
-                  {r.content.length > 300 && '...'}
-                </pre>
-              </CardContent>
-            </Card>
-          ))
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+          <FileText className="h-6 w-6" /> 我的简历
+        </h2>
+        {resume && (
+          <Badge variant="secondary">
+            上次更新: {new Date(resume.updated_at).toLocaleString('zh-CN')}
+          </Badge>
         )}
       </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base text-muted-foreground">
+            简历使用 Markdown 纯文本格式，AI 会根据此内容进行岗位匹配分析和文案生成
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label>简历名称</Label>
+            <Input
+              placeholder="如: 后端开发简历"
+              value={name}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label>简历内容 (Markdown)</Label>
+            <Textarea
+              placeholder={`# 个人信息\n姓名: 张三\n手机: 138xxxx\n邮箱: xxx@xxx.com\n\n# 求职意向\n期望岗位: 前端开发工程师\n期望城市: 杭州\n期望薪资: 15-25K\n\n# 工作经历\n## XX科技有限公司 | 前端开发 | 2021.06 - 至今\n- 负责公司核心产品前端开发\n- 使用 React + TypeScript 重构老项目\n\n# 技能\n- JavaScript / TypeScript / React / Vue\n- Node.js / Python\n- Git / Docker`}
+              rows={20}
+              className="font-mono text-sm"
+              value={content}
+              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setContent(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button onClick={handleSave} disabled={saving || !content.trim()}>
+              <Save className="h-4 w-4 mr-1" />
+              {saving ? '保存中...' : '保存简历'}
+            </Button>
+            {saved && (
+              <span className="text-sm text-green-600 flex items-center gap-1">
+                <CheckCircle2 className="h-4 w-4" /> 已保存
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {content && (
+        <Card className="mt-4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">内容预览</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-sm whitespace-pre-wrap leading-relaxed">{content}</pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
