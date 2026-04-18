@@ -474,38 +474,21 @@ async function tryPopupGreeting(greetingText) {
   await typeIntoInput(input, greetingText);
   await sleep(800);
 
-  // 找发送按钮 — 搜索整个页面（弹窗在 DOM 层级不确定）
-  let sendBtn = null;
-
-  // 精确选择器
-  const sendSelectors = ['.btn-send', '.send-btn', '.btn-sure', '.btn-confirm', '.submit-btn'];
-  for (const sel of sendSelectors) {
-    sendBtn = document.querySelector(sel);
-    if (sendBtn && !sendBtn.disabled) break;
-    sendBtn = null;
-  }
-
-  // 文本查找发送按钮 — 找距离输入框最近的 "发送" 按钮
-  if (!sendBtn) {
-    const btns = document.querySelectorAll('button, a.btn, [role="button"]');
-    for (const btn of btns) {
-      const t = btn.innerText.trim();
-      if ((t === '发送' || t === '确定' || t === '提交') && !btn.disabled) {
-        sendBtn = btn;
-        break;
-      }
-    }
-  }
-
-  if (sendBtn) {
-    sendBtn.click();
+  // 尝试点击发送按钮
+  const clicked = await findAndClickSend();
+  if (clicked) {
     await sleep(1000);
     console.log('[FindJobs] 弹窗发送成功');
     return { success: true, data: { sent: true, message: '已在弹窗中发送文案' } };
   }
 
-  // 尝试回车发送
-  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true }));
+  // 兜底：回车发送
+  input.focus();
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true, cancelable: true }));
+  await sleep(100);
+  input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true, cancelable: true }));
+  await sleep(100);
+  input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true }));
   await sleep(500);
   console.log('[FindJobs] 弹窗回车发送');
   return { success: true, data: { sent: true, message: '已在弹窗中通过回车发送文案' } };
@@ -569,56 +552,133 @@ async function sendGreetingOnChatPage(greetingText) {
   await sleep(800);
 
   // 点击发送按钮
-  const sendSelectors = ['.btn-send', '.send-btn', '.chat-op .send-btn', 'button.btn-sure'];
-  let sendBtn = null;
-  for (const sel of sendSelectors) {
-    sendBtn = document.querySelector(sel);
-    if (sendBtn && !sendBtn.disabled) break;
-    sendBtn = null;
-  }
-
-  // 文本查找
-  if (!sendBtn) {
-    const allBtns = document.querySelectorAll('button, a.btn');
-    for (const btn of allBtns) {
-      if (btn.innerText.trim() === '发送' && !btn.disabled) {
-        sendBtn = btn;
-        break;
-      }
-    }
-  }
-
-  if (sendBtn) {
-    sendBtn.click();
+  const clicked = await findAndClickSend();
+  if (clicked) {
     await sleep(1000);
     return { success: true, data: { sent: true, message: '聊天页文案已发送' } };
   }
 
   // 回车发送
-  chatInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true }));
+  chatInput.focus();
+  chatInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true, cancelable: true }));
+  await sleep(100);
+  chatInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true, cancelable: true }));
+  await sleep(100);
+  chatInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true }));
   await sleep(500);
   return { success: true, data: { sent: true, message: '聊天页文案已通过回车发送' } };
 }
 
 /**
- * 向输入元素中输入文本 — 支持 textarea, input, contenteditable div
+ * 向输入元素中输入文本
+ * 使用 execCommand('insertText') 模拟真实键盘输入，
+ * 确保 React/Vue 等框架能正确检测到输入变化
  */
 async function typeIntoInput(el, text) {
-  const tagName = el.tagName.toUpperCase();
   el.focus();
   await sleep(100);
 
+  const tagName = el.tagName.toUpperCase();
+
+  // 先清空
   if (tagName === 'TEXTAREA' || tagName === 'INPUT') {
     el.value = '';
-    el.value = text;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  } else {
+    el.innerText = '';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  await sleep(100);
+
+  // 方法1: execCommand — 最接近真实键盘输入，框架能检测到
+  try {
+    document.execCommand('insertText', false, text);
+    console.log('[FindJobs] 使用 execCommand 输入');
+    return;
+  } catch { /* fallback */ }
+
+  // 方法2: InputEvent (现代方式)
+  try {
+    el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: text, bubbles: true, cancelable: true }));
+    if (tagName === 'TEXTAREA' || tagName === 'INPUT') {
+      el.value = text;
+    } else {
+      el.innerText = text;
+    }
+    el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: text, bubbles: true }));
+    console.log('[FindJobs] 使用 InputEvent 输入');
+    return;
+  } catch { /* fallback */ }
+
+  // 方法3: 直接赋值 + 事件
+  if (tagName === 'TEXTAREA' || tagName === 'INPUT') {
+    // 修改 React 内部值
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype, 'value'
+    )?.set || Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype, 'value'
+    )?.set;
+    if (nativeInputValueSetter) {
+      nativeInputValueSetter.call(el, text);
+    } else {
+      el.value = text;
+    }
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   } else {
-    // contenteditable div
-    el.innerText = '';
     el.innerText = text;
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }
+  console.log('[FindJobs] 使用直接赋值输入');
+}
+
+/**
+ * 点击发送按钮 — 使用完整的鼠标事件序列
+ * 模拟真实用户点击: pointerdown → mousedown → pointerup → mouseup → click
+ */
+function clickElement(el) {
+  const rect = el.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+
+  const eventOpts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+
+  el.dispatchEvent(new PointerEvent('pointerdown', eventOpts));
+  el.dispatchEvent(new MouseEvent('mousedown', eventOpts));
+  el.dispatchEvent(new PointerEvent('pointerup', eventOpts));
+  el.dispatchEvent(new MouseEvent('mouseup', eventOpts));
+  el.dispatchEvent(new MouseEvent('click', eventOpts));
+}
+
+/**
+ * 在页面中查找发送按钮并点击
+ * @returns {boolean} 是否找到并点击了发送按钮
+ */
+async function findAndClickSend() {
+  // 精确选择器
+  const sendSelectors = ['.btn-send', '.send-btn', '.btn-sure', '.btn-confirm', '.submit-btn'];
+  for (const sel of sendSelectors) {
+    const btn = document.querySelector(sel);
+    if (btn && !btn.disabled) {
+      clickElement(btn);
+      console.log('[FindJobs] 通过选择器找到发送按钮:', sel);
+      return true;
+    }
+  }
+
+  // 文本查找 — 扩大搜索范围，包括 div/span/a 等任意可点击元素
+  const allClickables = document.querySelectorAll('button, a, div[class*="send"], span[class*="send"], [role="button"]');
+  for (const el of allClickables) {
+    const t = el.innerText.trim();
+    if ((t === '发送' || t === '确定' || t === '提交') && !el.disabled) {
+      clickElement(el);
+      console.log('[FindJobs] 通过文本找到发送按钮:', t, el.tagName);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function sleep(ms) {
