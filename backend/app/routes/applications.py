@@ -171,12 +171,12 @@ async def _retry_single(app_id: int, job, greeting_text: str):
         status = "failed"
 
     async with get_session_maker() as session:
-        from datetime import datetime, timezone
+        from app.models import now_shanghai
         app = await session.get(Application, app_id)
         if app:
             app.status = status
             if status == "sent":
-                app.applied_at = datetime.now(timezone.utc)
+                app.applied_at = now_shanghai()
             await session.commit()
 
 

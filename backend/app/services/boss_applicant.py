@@ -3,12 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from datetime import datetime, timezone
 
 from sqlmodel import select, func
 
 from app.database import async_session
-from app.models import Job, Application, ApplicationBatch, SystemConfig
+from app.models import Job, Application, ApplicationBatch, SystemConfig, now_shanghai
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,7 @@ _running_singles: dict[int, bool] = {}  # application_id -> is_running
 
 async def get_today_applied() -> int:
     async with async_session() as session:
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = now_shanghai().replace(hour=0, minute=0, second=0, microsecond=0)
         result = await session.execute(
             select(func.count()).select_from(Application).where(
                 Application.status.in_(["sent", "recorded", "sending"]),
@@ -101,7 +100,7 @@ async def apply_to_job(job_id: int, greeting_text: str | None = None) -> Applica
             job_id=job.id,
             greeting_text=greeting_text or "",
             status="sending",
-            applied_at=datetime.now(timezone.utc),
+            applied_at=now_shanghai(),
         )
         session.add(application)
         await session.commit()
@@ -213,7 +212,7 @@ async def _run_batch(batch_id: int, app_ids: list[int], greeting_texts: dict[int
                 a = await session.get(Application, app_id)
                 if a:
                     a.status = status
-                    a.applied_at = datetime.now(timezone.utc)
+                    a.applied_at = now_shanghai()
                     await session.commit()
 
             logger.info("[批量投递] %d/%d 成功: 岗位 %d (%s)", i + 1, len(app_ids), job.id, status)

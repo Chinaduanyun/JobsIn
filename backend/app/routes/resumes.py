@@ -3,6 +3,8 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+
+from app.models import now_shanghai
 from pydantic import BaseModel
 
 from app.database import get_session
@@ -49,7 +51,7 @@ async def update_resume(resume_id: int, data: ResumeUpdate, session: AsyncSessio
         return {"error": "not found"}
     resume.name = data.name
     resume.content = data.content
-    resume.updated_at = datetime.utcnow()
+    resume.updated_at = now_shanghai()
     await session.commit()
     return resume
 

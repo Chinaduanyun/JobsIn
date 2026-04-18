@@ -1,6 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from sqlmodel import SQLModel, Field
+
+# 上海时区 UTC+8
+SHANGHAI_TZ = timezone(timedelta(hours=8))
+
+
+def now_shanghai() -> datetime:
+    return datetime.now(SHANGHAI_TZ).replace(tzinfo=None)
 
 
 # ── Jobs ─────────────────────────────────────────────────────────────────
@@ -25,7 +32,7 @@ class Job(SQLModel, table=True):
     company_industry: str = ""
     tags: str = ""  # 逗号分隔
     task_id: Optional[int] = Field(default=None, foreign_key="collection_tasks.id")
-    collected_at: datetime = Field(default_factory=datetime.utcnow)
+    collected_at: datetime = Field(default_factory=now_shanghai)
 
 
 # ── AI 分析 ──────────────────────────────────────────────────────────────
@@ -39,7 +46,7 @@ class JobAnalysis(SQLModel, table=True):
     scores_json: str = "{}"  # {"skill": 0.8, "salary": 0.6, ...}
     suggestion: str = ""  # AI 的简历优化建议
     greeting_text: str = ""  # AI 生成的沟通文案
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_shanghai)
 
 
 # ── 投递批次 ──────────────────────────────────────
@@ -52,7 +59,7 @@ class ApplicationBatch(SQLModel, table=True):
     total: int = 0
     completed: int = 0
     failed: int = 0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_shanghai)
 
 
 # ── 投递记录 ─────────────────────────────────────────────────────────────
@@ -66,7 +73,7 @@ class Application(SQLModel, table=True):
     greeting_text: str = ""
     status: str = "pending"  # pending / sending / sent / failed / paused
     applied_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_shanghai)
 
 
 # ── 简历 ─────────────────────────────────────────────────────────────────
@@ -78,7 +85,7 @@ class Resume(SQLModel, table=True):
     name: str = "默认简历"
     content: str = ""  # Markdown
     is_active: bool = Field(default=True)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=now_shanghai)
 
 
 # ── 采集任务 ─────────────────────────────────────────────────────────────
@@ -95,7 +102,7 @@ class CollectionTask(SQLModel, table=True):
     status: str = "pending"  # pending / running / completed / failed / cancelled
     total_collected: int = 0
     max_pages: int = 5
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_shanghai)
 
 
 # ── 系统配置 ─────────────────────────────────────────────────────────────
