@@ -256,22 +256,31 @@ async function handleApplyJob(cmd) {
 
     return { success: true, data: response };
   } catch (err) {
-    // "继续沟通"点击后页面跳转，消息通道断开 — 检查是否已到聊天页
+    // 页面跳转导致 content script 被销毁 — 多种错误形式:
+    // 1. Chrome 原生: "back/forward cache", "message channel is closed", "Receiving end does not exist"
+    // 2. 自定义超时: "content script 响应超时" (content script 收到消息但中途被销毁)
     const msg = err.message || '';
-    if (msg.includes('back/forward cache') || msg.includes('message channel is closed') || msg.includes('Receiving end does not exist')) {
-      console.log('[FindJobs] 消息通道断开，检查是否跳转到聊天页...');
+    console.log('[FindJobs] apply_job 异常:', msg);
+
+    // 检查是否跳转到了聊天页
+    try {
       const tab = await chrome.tabs.get(tid);
       if (tab.url && tab.url.includes('/web/geek/chat')) {
+        console.log('[FindJobs] 检测到已在聊天页，继续发送文案');
         return await handleChatPageGreeting(tid, greeting_text);
       }
-      // 等一下再检查，可能还在跳转中
-      await waitForNavigation(tid, '/web/geek/chat', 8000);
+    } catch { /* tab 可能已关闭 */ }
+
+    // 等一下再检查，可能还在跳转中
+    await waitForNavigation(tid, '/web/geek/chat', 5000);
+    try {
       const tab2 = await chrome.tabs.get(tid);
       if (tab2.url && tab2.url.includes('/web/geek/chat')) {
         return await handleChatPageGreeting(tid, greeting_text);
       }
-    }
-    return { success: false, error: `投递操作失败: ${err.message}` };
+    } catch { /* ignore */ }
+
+    return { success: false, error: `投递操作失败: ${msg}` };
   }
 }
 
@@ -279,14 +288,30 @@ async function handleApplyJob(cmd) {
  * 在聊天页发送打招呼文案
  */
 async function handleChatPageGreeting(tid, greeting_text) {
-  console.log('[FindJobs] 已到达聊天页，准备发送文案...');
-  await new Promise(r => setTimeout(r, 2500)); // 等待聊天页 DOM 加载
+  console.log('[FindJobs] 等待聊天页加载...');
 
-  const chatResponse = await sendToContent(tid, {
-    action: 'send_chat_greeting',
-    greeting_text: greeting_text || '',
-  }, 15000);
-  return { success: true, data: chatResponse };
+  // 先确认已到聊天页 (可能正在跳转中)
+  await waitForNavigation(tid, '/web/geek/chat', 10000);
+
+  // 等 content script 注入并初始化
+  await new Promise(r => setTimeout(r, 2000));
+
+  // 最多重试 3 次发送 (content script 可能还没准备好)
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const chatResponse = await sendToContent(tid, {
+        action: 'send_chat_greeting',
+        greeting_text: greeting_text || '',
+      }, 15000);
+      return { success: true, data: chatResponse };
+    } catch (err) {
+      lastErr = err;
+      console.log(`[FindJobs] 聊天页发送尝试 ${attempt + 1} 失败: ${err.message}`);
+      if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  return { success: false, error: `聊天页发送失败: ${lastErr?.message}` };
 }
 
 /**

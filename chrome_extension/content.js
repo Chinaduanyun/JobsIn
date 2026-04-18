@@ -372,7 +372,8 @@ async function applyJob(greetingText) {
 
     // 2. "继续沟通" 场景: 点击会导致页面跳转，消息通道会断开
     //    先返回信号给 background.js，再用 setTimeout 延迟点击
-    if (isFriend || redirectUrl) {
+    //    仅当按钮文本含"继续沟通"或 data-isfriend=true 时才走此分支
+    if (isFriend || btnText.includes('继续沟通')) {
       console.log('[FindJobs] 继续沟通场景 — 先返回信号，延迟点击');
       chatBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
       // 延迟点击，确保 sendResponse 先送达
