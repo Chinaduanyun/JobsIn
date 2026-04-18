@@ -29,6 +29,7 @@ async def _migrate():
     migrations = [
         ("jobs", "platform", "ALTER TABLE jobs ADD COLUMN platform TEXT DEFAULT 'boss'"),
         ("collection_tasks", "platform", "ALTER TABLE collection_tasks ADD COLUMN platform TEXT DEFAULT 'boss'"),
+        ("applications", "batch_id", "ALTER TABLE applications ADD COLUMN batch_id INTEGER"),
     ]
     async with engine.begin() as conn:
         for table, column, sql in migrations:

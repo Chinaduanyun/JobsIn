@@ -42,6 +42,19 @@ class JobAnalysis(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+# ── 投递批次 ──────────────────────────────────────
+
+class ApplicationBatch(SQLModel, table=True):
+    __tablename__ = "application_batches"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    status: str = "running"  # running / paused / completed / failed
+    total: int = 0
+    completed: int = 0
+    failed: int = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── 投递记录 ─────────────────────────────────────────────────────────────
 
 class Application(SQLModel, table=True):
@@ -49,8 +62,9 @@ class Application(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     job_id: int = Field(foreign_key="jobs.id", index=True)
+    batch_id: Optional[int] = Field(default=None, foreign_key="application_batches.id", index=True)
     greeting_text: str = ""
-    status: str = "pending"  # pending / sent / failed
+    status: str = "pending"  # pending / sending / sent / failed / paused
     applied_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

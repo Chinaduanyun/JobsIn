@@ -26,6 +26,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse(result);
     return true;
   }
+
+  if (message.action === 'apply_job') {
+    // 自动投递：点击"立即沟通"，输入文案，发送
+    applyJob(message.greeting_text || '').then(sendResponse);
+    return true; // async response
+  }
 });
 
 // ── 字体解密工具 ─────────────────────────────
@@ -319,4 +325,91 @@ function extractFullJob() {
     console.warn('[FindJobs] 陪伴模式提取失败:', e);
     return { success: false, error: e.message };
   }
+}
+
+// ── 自动投递：点击沟通并发送文案 ──────────────
+
+async function applyJob(greetingText) {
+  try {
+    // 1. 找"立即沟通"按钮
+    const chatBtn = document.querySelector(
+      '.btn-startchat, .op-btn-chat, a.btn-startchat, .job-op .btn'
+    );
+    if (!chatBtn) {
+      // 可能已经在聊天中
+      const continueChatBtn = document.querySelector('.btn-continue-chat, .op-btn-chat');
+      if (continueChatBtn) {
+        continueChatBtn.click();
+        await sleep(2000);
+        return await sendGreetingInChat(greetingText);
+      }
+      return { success: false, error: '未找到"立即沟通"按钮' };
+    }
+
+    // 2. 点击"立即沟通"
+    chatBtn.click();
+    await sleep(2500);
+
+    // 3. 检查是否弹出了聊天窗口或跳转到聊天页
+    return await sendGreetingInChat(greetingText);
+
+  } catch (e) {
+    console.error('[FindJobs] 投递失败:', e);
+    return { success: false, error: e.message };
+  }
+}
+
+async function sendGreetingInChat(greetingText) {
+  // 等待聊天输入框出现
+  let retries = 5;
+  let chatInput = null;
+  while (retries > 0) {
+    chatInput = document.querySelector(
+      '.chat-input, .input-area textarea, [contenteditable="true"].chat-input, div[contenteditable="true"]'
+    );
+    if (chatInput) break;
+    await sleep(1000);
+    retries--;
+  }
+
+  if (!chatInput) {
+    // 可能跳转到了聊天页面，不是弹窗
+    return { success: true, data: { sent: false, reason: 'chat_page_redirect', message: '已点击沟通按钮，可能跳转到了聊天页面' } };
+  }
+
+  if (!greetingText) {
+    return { success: true, data: { sent: false, reason: 'no_greeting', message: '已打开聊天窗口，但无沟通文案' } };
+  }
+
+  // 输入文案
+  if (chatInput.tagName === 'TEXTAREA' || chatInput.tagName === 'INPUT') {
+    chatInput.value = greetingText;
+    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+    chatInput.dispatchEvent(new Event('change', { bubbles: true }));
+  } else {
+    // contenteditable div
+    chatInput.innerText = greetingText;
+    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  await sleep(500);
+
+  // 点击发送按钮
+  const sendBtn = document.querySelector(
+    '.btn-send, .chat-op .send-btn, button[type="submit"].send, .btn-sure'
+  );
+  if (sendBtn && !sendBtn.disabled) {
+    sendBtn.click();
+    await sleep(1000);
+    return { success: true, data: { sent: true, message: '文案已发送' } };
+  }
+
+  // 尝试回车发送
+  chatInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+  await sleep(500);
+  return { success: true, data: { sent: true, message: '文案已通过回车发送' } };
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
 }

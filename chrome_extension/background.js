@@ -73,6 +73,9 @@ async function executeCommand(cmd) {
       case 'navigate_and_extract_detail':
         result = await handleExtractDetail(cmd);
         break;
+      case 'apply_job':
+        result = await handleApplyJob(cmd);
+        break;
       case 'ping':
         result = { success: true, data: { pong: true, timestamp: Date.now() } };
         break;
@@ -215,6 +218,39 @@ async function handleExtractDetail(cmd) {
     return { success: true, data: response };
   } catch (err) {
     return { success: false, error: `提取失败: ${err.message}` };
+  }
+}
+
+// ── 自动投递 ──────────────────────────────────
+
+async function handleApplyJob(cmd) {
+  const { url, greeting_text } = cmd;
+  const tid = await ensureTab();
+
+  try {
+    await navigateAndWait(tid, url);
+  } catch (err) {
+    return { success: false, error: `导航失败: ${err.message}` };
+  }
+
+  const tab = await chrome.tabs.get(tid);
+  const currentUrl = tab.url || '';
+  if (currentUrl.includes('verify.html') || currentUrl.includes('security.html')) {
+    await chrome.tabs.update(tid, { active: true });
+    return { success: false, error: 'security_check', security_check: true };
+  }
+
+  // 等待页面完全加载
+  await new Promise(r => setTimeout(r, 2000));
+
+  try {
+    const response = await sendToContent(tid, {
+      action: 'apply_job',
+      greeting_text: greeting_text || '',
+    }, 20000);
+    return { success: true, data: response };
+  } catch (err) {
+    return { success: false, error: `投递操作失败: ${err.message}` };
   }
 }
 

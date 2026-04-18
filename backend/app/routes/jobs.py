@@ -85,33 +85,6 @@ async def list_jobs(
     return {"items": items, "total": total, "page": page, "size": size}
 
 
-@router.get("/{job_id}")
-async def get_job(job_id: int, session: AsyncSession = Depends(get_session)):
-    job = await session.get(Job, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="岗位不存在")
-
-    # 附带分析结果 — 取最新一条
-    analysis_stmt = (
-        select(JobAnalysis)
-        .where(JobAnalysis.job_id == job_id)
-        .order_by(JobAnalysis.created_at.desc())
-        .limit(1)
-    )
-    analysis = (await session.execute(analysis_stmt)).scalar_one_or_none()
-
-    return {"job": job, "analysis": analysis}
-
-
-@router.delete("/{job_id}")
-async def delete_job(job_id: int, session: AsyncSession = Depends(get_session)):
-    job = await session.get(Job, job_id)
-    if job:
-        await session.delete(job)
-        await session.commit()
-    return {"ok": True}
-
-
 @router.get("/recommendations")
 async def list_recommendations(
     page: int = Query(1, ge=1),
@@ -121,7 +94,6 @@ async def list_recommendations(
     """AI 推荐列表：只返回有分析结果的岗位，按 overall_score 降序"""
     from sqlalchemy import desc
 
-    # 子查询：每个 job 的最新 analysis id
     latest_analysis = (
         select(
             JobAnalysis.job_id,
@@ -131,7 +103,6 @@ async def list_recommendations(
         .subquery()
     )
 
-    # 联合查询 Job + 最新 JobAnalysis，按 score 降序
     stmt = (
         select(Job, JobAnalysis)
         .join(latest_analysis, Job.id == latest_analysis.c.job_id)
@@ -143,7 +114,6 @@ async def list_recommendations(
     result = await session.execute(stmt)
     rows = result.all()
 
-    # 总数
     count_stmt = (
         select(func.count())
         .select_from(Job)
@@ -151,7 +121,6 @@ async def list_recommendations(
     )
     total = (await session.execute(count_stmt)).scalar()
 
-    # 批量查投递状态
     job_ids = [j.id for j, _ in rows]
     app_map: dict[int, str] = {}
     for jid in job_ids:
@@ -188,6 +157,33 @@ async def list_recommendations(
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "size": size}
+
+
+@router.get("/{job_id}")
+async def get_job(job_id: int, session: AsyncSession = Depends(get_session)):
+    job = await session.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="岗位不存在")
+
+    # 附带分析结果 — 取最新一条
+    analysis_stmt = (
+        select(JobAnalysis)
+        .where(JobAnalysis.job_id == job_id)
+        .order_by(JobAnalysis.created_at.desc())
+        .limit(1)
+    )
+    analysis = (await session.execute(analysis_stmt)).scalar_one_or_none()
+
+    return {"job": job, "analysis": analysis}
+
+
+@router.delete("/{job_id}")
+async def delete_job(job_id: int, session: AsyncSession = Depends(get_session)):
+    job = await session.get(Job, job_id)
+    if job:
+        await session.delete(job)
+        await session.commit()
+    return {"ok": True}
 
 
 class BatchDeleteRequest(BaseModel):

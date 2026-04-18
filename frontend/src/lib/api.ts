@@ -155,13 +155,25 @@ export const applications = {
       body: JSON.stringify({ job_id: jobId, greeting_text: greetingText }),
     }),
   batchApply: (jobIds: number[], greetingTexts?: Record<number, string>) =>
-    request<{ message: string; total: number }>('/applications/batch-apply', {
+    request<{ message: string; total: number; batch_id: number }>('/applications/batch-apply', {
       method: 'POST',
       body: JSON.stringify({ job_ids: jobIds, greeting_texts: greetingTexts }),
     }),
   list: (page = 1) =>
     request<{ items: any[]; page: number; size: number }>(`/applications?page=${page}`),
   today: () => request<{ count: number }>('/applications/today'),
+  // 批次
+  listBatches: () =>
+    request<{ items: any[] }>('/applications/batches'),
+  getBatch: (batchId: number) =>
+    request<{ batch: any; applications: any[] }>(`/applications/batches/${batchId}`),
+  pauseBatch: (batchId: number) =>
+    request<{ message: string }>(`/applications/batches/${batchId}/pause`, { method: 'POST' }),
+  resumeBatch: (batchId: number) =>
+    request<{ message: string }>(`/applications/batches/${batchId}/resume`, { method: 'POST' }),
+  // 单个
+  pause: (appId: number) =>
+    request<{ message: string }>(`/applications/${appId}/pause`, { method: 'POST' }),
 }
 
 // ===== Extension =====

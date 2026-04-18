@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
-import { jobs as jobsApi, applications as appsApi, ai as aiApi } from '@/lib/api'
+import { jobs as jobsApi, applications as appsApi } from '@/lib/api'
 import type { Job, PaginatedResponse } from '@/types'
 import {
   Brain, MessageSquare, ExternalLink, ChevronLeft, ChevronRight,
-  Send, Loader2, Star, TrendingUp, Clock,
+  Star, Clock,
 } from 'lucide-react'
 import JobDetailDrawer from '@/components/JobDetailDrawer'
 
