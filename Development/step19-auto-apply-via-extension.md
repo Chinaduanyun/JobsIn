@@ -75,5 +75,17 @@ content.js applyJob():
 | 立即沟通 | `a.btn.btn-startchat` | data-isfriend="false" |
 | 继续沟通 | `a.btn.btn-startchat` | data-isfriend="true" |
 | 聊天输入框 | `#chat-input` | 聊天页面 |
-| 发送按钮 | `.btn-send` | 聊天页面 |
+| 发送按钮 | `.btn-send` | 聊天页面 (兜底) |
 | 弹窗输入框 | placeholder 含 "描述"/"问题" | 首次沟通弹窗 |
+| 发送方式 | Enter 键 | **主要方式** — 输入框按回车即可发送 |
+
+## Step 20: Enter 键发送修复 (v0.9.1)
+
+### 问题
+文案成功输入到 Boss直聘输入框，但点击发送按钮无效。用户发现按 Enter 键即可发送。
+
+### 修复
+- `content.js`: 新增 `pressEnterToSend()` — 模拟 Enter 键 (keydown → keypress → keyup)
+- `tryPopupGreeting()`: 输入文案后优先用 Enter 发送，点击按钮作为兜底
+- `sendGreetingOnChatPage()`: 同上
+- 参考 ai-job-master 项目：该项目完全绕过 DOM，通过 API + WebSocket/protobuf 发送消息

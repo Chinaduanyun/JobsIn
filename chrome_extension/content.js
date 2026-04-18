@@ -474,24 +474,22 @@ async function tryPopupGreeting(greetingText) {
   await typeIntoInput(input, greetingText);
   await sleep(800);
 
-  // 尝试点击发送按钮
-  const clicked = await findAndClickSend();
-  if (clicked) {
-    await sleep(1000);
-    console.log('[FindJobs] 弹窗发送成功');
+  // 用回车发送 — Boss直聘输入框按 Enter 即可发送
+  const sent = await pressEnterToSend(input);
+  if (sent) {
+    console.log('[FindJobs] 弹窗回车发送成功');
     return { success: true, data: { sent: true, message: '已在弹窗中发送文案' } };
   }
 
-  // 兜底：回车发送
-  input.focus();
-  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true, cancelable: true }));
-  await sleep(100);
-  input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true, cancelable: true }));
-  await sleep(100);
-  input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true }));
-  await sleep(500);
-  console.log('[FindJobs] 弹窗回车发送');
-  return { success: true, data: { sent: true, message: '已在弹窗中通过回车发送文案' } };
+  // 兜底：尝试点击发送按钮
+  const clicked = await findAndClickSend();
+  if (clicked) {
+    await sleep(1000);
+    console.log('[FindJobs] 弹窗点击发送成功');
+    return { success: true, data: { sent: true, message: '已在弹窗中点击发送' } };
+  }
+
+  return { success: true, data: { sent: false, reason: 'send_failed', message: '文案已输入但发送失败' } };
 }
 
 /**
@@ -551,22 +549,20 @@ async function sendGreetingOnChatPage(greetingText) {
   await typeIntoInput(chatInput, greetingText);
   await sleep(800);
 
-  // 点击发送按钮
-  const clicked = await findAndClickSend();
-  if (clicked) {
-    await sleep(1000);
+  // 用回车发送 — Boss直聘聊天页按 Enter 即可发送
+  const sent = await pressEnterToSend(chatInput);
+  if (sent) {
     return { success: true, data: { sent: true, message: '聊天页文案已发送' } };
   }
 
-  // 回车发送
-  chatInput.focus();
-  chatInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true, cancelable: true }));
-  await sleep(100);
-  chatInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true, cancelable: true }));
-  await sleep(100);
-  chatInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true }));
-  await sleep(500);
-  return { success: true, data: { sent: true, message: '聊天页文案已通过回车发送' } };
+  // 兜底：点击发送按钮
+  const clicked = await findAndClickSend();
+  if (clicked) {
+    await sleep(1000);
+    return { success: true, data: { sent: true, message: '聊天页文案已点击发送' } };
+  }
+
+  return { success: true, data: { sent: false, reason: 'send_failed', message: '文案已输入但发送失败' } };
 }
 
 /**
@@ -649,6 +645,35 @@ function clickElement(el) {
   el.dispatchEvent(new PointerEvent('pointerup', eventOpts));
   el.dispatchEvent(new MouseEvent('mouseup', eventOpts));
   el.dispatchEvent(new MouseEvent('click', eventOpts));
+}
+
+/**
+ * 在输入框中按 Enter 键发送消息
+ * Boss直聘的输入框按回车就能发送，这是最可靠的发送方式
+ */
+async function pressEnterToSend(inputEl) {
+  try {
+    inputEl.focus();
+    await sleep(200);
+
+    const enterOpts = {
+      key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+      bubbles: true, cancelable: true, composed: true,
+    };
+
+    inputEl.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
+    await sleep(50);
+    inputEl.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
+    await sleep(50);
+    inputEl.dispatchEvent(new KeyboardEvent('keyup', { ...enterOpts, cancelable: false }));
+    await sleep(800);
+
+    console.log('[FindJobs] 已按 Enter 发送');
+    return true;
+  } catch (e) {
+    console.warn('[FindJobs] Enter 发送失败:', e);
+    return false;
+  }
 }
 
 /**
