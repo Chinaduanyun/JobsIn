@@ -40,15 +40,17 @@ export default function JobsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [batchLoading, setBatchLoading] = useState('')
   const [batchMsg, setBatchMsg] = useState('')
+  const [hrActiveFilter, setHrActiveFilter] = useState<string>('')
   const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fetchJobs = (p: number, kw: string) => {
-    jobsApi.list({ page: p, page_size: 20, keyword: kw || undefined }).then(setData).catch(() => {})
+  const fetchJobs = (p: number, kw: string, hrFilter?: string) => {
+    const filter = hrFilter !== undefined ? hrFilter : hrActiveFilter
+    jobsApi.list({ page: p, page_size: 20, keyword: kw || undefined, hr_active: filter || undefined }).then(setData).catch(() => {})
   }
 
   useEffect(() => {
     fetchJobs(page, keyword)
-  }, [page])
+  }, [page, hrActiveFilter])
 
   // 自动刷新：每5秒检查是否有新岗位
   useEffect(() => {
@@ -238,7 +240,7 @@ export default function JobsPage() {
       )}
 
       {/* Search */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-2">
         <Input
           placeholder="搜索岗位关键词..."
           value={keyword}
@@ -259,6 +261,26 @@ export default function JobsPage() {
             全选
           </Button>
         )}
+      </div>
+
+      {/* HR 活跃度筛选 */}
+      <div className="flex gap-1.5 mb-4 flex-wrap">
+        {([
+          { value: '', label: '全部HR' },
+          { value: 'online', label: '🟢 在线' },
+          { value: 'active', label: '🔵 近期活跃' },
+          { value: 'inactive', label: '⚪ 不活跃' },
+        ] as const).map(f => (
+          <Button
+            key={f.value}
+            variant={hrActiveFilter === f.value ? 'default' : 'outline'}
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => { setHrActiveFilter(f.value); setPage(1) }}
+          >
+            {f.label}
+          </Button>
+        ))}
       </div>
 
       {/* Job list */}
@@ -319,7 +341,22 @@ export default function JobsPage() {
                       {job.experience && <span className="bg-muted px-1.5 py-0.5 rounded">{job.experience}</span>}
                       {job.education && <span className="bg-muted px-1.5 py-0.5 rounded">{job.education}</span>}
                       {job.company && <span>{job.company}</span>}
-                      {job.hr_name && <span>HR: {job.hr_name}{job.hr_active ? ` (${job.hr_active})` : ''}</span>}
+                      {job.hr_name && (
+                        <span className="flex items-center gap-1">
+                          HR: {job.hr_name}
+                          {job.hr_active && (
+                            <span className={`inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium ${
+                              ['在线', '刚刚活跃'].includes(job.hr_active)
+                                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                : ['今日活跃', '3日内活跃', '本周活跃'].includes(job.hr_active)
+                                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                                  : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+                            }`}>
+                              {job.hr_active}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </div>
                   </div>
 

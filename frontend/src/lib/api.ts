@@ -14,11 +14,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ===== Jobs =====
 export const jobs = {
-  list: (params?: { page?: number; page_size?: number; keyword?: string }) => {
+  list: (params?: { page?: number; page_size?: number; keyword?: string; hr_active?: string }) => {
     const q = new URLSearchParams()
     if (params?.page) q.set('page', String(params.page))
     if (params?.page_size) q.set('size', String(params.page_size))
     if (params?.keyword) q.set('keyword', params.keyword)
+    if (params?.hr_active) q.set('hr_active', params.hr_active)
     return request<import('@/types').PaginatedResponse<import('@/types').Job>>(
       `/jobs?${q}`
     )

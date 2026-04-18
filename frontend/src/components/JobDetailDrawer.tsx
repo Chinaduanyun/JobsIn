@@ -150,7 +150,16 @@ export default function JobDetailDrawer({ job, open, onClose, onApply }: Props) 
               <div className="flex items-center gap-1 mt-2 text-sm">
                 <User className="h-3 w-3" /> HR: {job.hr_name}
                 {job.hr_active && (
-                  <Badge variant="outline" className="text-xs ml-1">
+                  <Badge
+                    variant="outline"
+                    className={`text-xs ml-1 ${
+                      ['在线', '刚刚活跃'].includes(job.hr_active)
+                        ? 'border-green-400 text-green-600 bg-green-50 dark:bg-green-900/20'
+                        : ['今日活跃', '3日内活跃', '本周活跃'].includes(job.hr_active)
+                          ? 'border-blue-400 text-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                          : 'border-gray-300 text-gray-500'
+                    }`}
+                  >
                     {job.hr_active}
                   </Badge>
                 )}

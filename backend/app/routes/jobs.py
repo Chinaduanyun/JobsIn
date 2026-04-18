@@ -15,6 +15,7 @@ router = APIRouter()
 async def list_jobs(
     status: str = Query(None, description="筛选: analyzed / unapplied"),
     keyword: str = Query(None),
+    hr_active: str = Query(None, description="HR活跃筛选: active(近期活跃) / inactive(不活跃) / online(在线)"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
@@ -22,6 +23,19 @@ async def list_jobs(
     stmt = select(Job).order_by(Job.collected_at.desc())
     if keyword:
         stmt = stmt.where(Job.title.contains(keyword) | Job.company.contains(keyword))
+
+    # HR 活跃度筛选
+    if hr_active == "online":
+        # 仅在线
+        stmt = stmt.where(Job.hr_active.in_(["在线", "刚刚活跃"]))
+    elif hr_active == "active":
+        # 近期活跃：在线、刚刚活跃、今日活跃、3日内活跃、本周活跃
+        active_values = ["在线", "刚刚活跃", "今日活跃", "3日内活跃", "本周活跃"]
+        stmt = stmt.where(Job.hr_active.in_(active_values))
+    elif hr_active == "inactive":
+        # 不活跃：无活跃信息 或 超过一周
+        active_values = ["在线", "刚刚活跃", "今日活跃", "3日内活跃", "本周活跃"]
+        stmt = stmt.where(~Job.hr_active.in_(active_values))
     stmt = stmt.offset((page - 1) * size).limit(size)
     result = await session.execute(stmt)
     jobs = result.scalars().all()

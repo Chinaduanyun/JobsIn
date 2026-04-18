@@ -251,23 +251,42 @@ async function handleApplyJob(cmd) {
 
     // 检查是否需要在聊天页继续操作 (继续沟通场景 — 页面跳转)
     if (response && response.data && response.data.reason === 'redirecting_to_chat') {
-      console.log('[FindJobs] 等待聊天页加载...');
-      // 等待页面跳转到聊天页
-      await waitForNavigation(tid, '/web/geek/chat', 10000);
-      await new Promise(r => setTimeout(r, 2000));
-
-      // 在聊天页上发送文案
-      const chatResponse = await sendToContent(tid, {
-        action: 'send_chat_greeting',
-        greeting_text: greeting_text || '',
-      }, 15000);
-      return { success: true, data: chatResponse };
+      return await handleChatPageGreeting(tid, greeting_text);
     }
 
     return { success: true, data: response };
   } catch (err) {
+    // "继续沟通"点击后页面跳转，消息通道断开 — 检查是否已到聊天页
+    const msg = err.message || '';
+    if (msg.includes('back/forward cache') || msg.includes('message channel is closed') || msg.includes('Receiving end does not exist')) {
+      console.log('[FindJobs] 消息通道断开，检查是否跳转到聊天页...');
+      const tab = await chrome.tabs.get(tid);
+      if (tab.url && tab.url.includes('/web/geek/chat')) {
+        return await handleChatPageGreeting(tid, greeting_text);
+      }
+      // 等一下再检查，可能还在跳转中
+      await waitForNavigation(tid, '/web/geek/chat', 8000);
+      const tab2 = await chrome.tabs.get(tid);
+      if (tab2.url && tab2.url.includes('/web/geek/chat')) {
+        return await handleChatPageGreeting(tid, greeting_text);
+      }
+    }
     return { success: false, error: `投递操作失败: ${err.message}` };
   }
+}
+
+/**
+ * 在聊天页发送打招呼文案
+ */
+async function handleChatPageGreeting(tid, greeting_text) {
+  console.log('[FindJobs] 已到达聊天页，准备发送文案...');
+  await new Promise(r => setTimeout(r, 2500)); // 等待聊天页 DOM 加载
+
+  const chatResponse = await sendToContent(tid, {
+    action: 'send_chat_greeting',
+    greeting_text: greeting_text || '',
+  }, 15000);
+  return { success: true, data: chatResponse };
 }
 
 /**

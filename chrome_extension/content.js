@@ -210,7 +210,7 @@ function extractJobs() {
       education: eduEl ? eduEl.textContent.trim() : '',
       hr_name: hrNameEl ? hrNameEl.textContent.trim() : '',
       hr_title: hrTitleEl ? hrTitleEl.textContent.trim() : '',
-      hr_active: hrOnlineEl ? '在线' : '',
+      hr_active: hrOnlineEl ? hrOnlineEl.textContent.trim() : '',
       company_size: companySizeEl ? companySizeEl.textContent.trim() : '',
       company_industry: companyIndustryEl ? companyIndustryEl.textContent.trim() : '',
       url: url,
@@ -367,51 +367,46 @@ async function applyJob(greetingText) {
 
     const btnText = chatBtn.innerText.trim();
     const isFriend = chatBtn.getAttribute('data-isfriend') === 'true';
-    console.log('[FindJobs] 找到按钮:', btnText, 'isFriend:', isFriend);
-
-    // 2. 记录点击前的 URL
-    const urlBefore = window.location.href;
-
-    // 3. 滚动到按钮并点击
-    chatBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    await sleep(500);
-    chatBtn.click();
-    console.log('[FindJobs] 已点击按钮');
-
-    // 4. 等待响应 — 可能出现弹窗 or 页面跳转
-    await sleep(2000);
-
-    // 5. 检查是否出现了弹窗/对话框 (首次沟通场景)
-    const popupResult = await tryPopupGreeting(greetingText);
-    if (popupResult) {
-      return popupResult;
-    }
-
-    // 6. 检查是否跳转到聊天页面 (已是好友场景)
-    const currentUrl = window.location.href;
-    if (currentUrl.includes('/web/geek/chat')) {
-      // 已经在聊天页 (SPA 路由)，直接发送
-      console.log('[FindJobs] 已在聊天页:', currentUrl);
-      return await sendGreetingOnChatPage(greetingText);
-    }
-
-    // 7. 按钮有 redirect-url — 通知 background.js 等待页面跳转后再操作
     const redirectUrl = chatBtn.getAttribute('redirect-url');
-    if (redirectUrl || isFriend) {
-      console.log('[FindJobs] 继续沟通，页面将跳转到聊天页');
-      // 如果还没跳转，手动触发
-      if (redirectUrl && currentUrl === urlBefore) {
-        window.location.href = redirectUrl.startsWith('http')
-          ? redirectUrl
-          : 'https://www.zhipin.com' + redirectUrl;
-      }
+    console.log('[FindJobs] 找到按钮:', btnText, 'isFriend:', isFriend, 'redirect:', redirectUrl);
+
+    // 2. "继续沟通" 场景: 点击会导致页面跳转，消息通道会断开
+    //    先返回信号给 background.js，再用 setTimeout 延迟点击
+    if (isFriend || redirectUrl) {
+      console.log('[FindJobs] 继续沟通场景 — 先返回信号，延迟点击');
+      chatBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // 延迟点击，确保 sendResponse 先送达
+      setTimeout(() => {
+        chatBtn.click();
+        console.log('[FindJobs] 延迟点击已执行');
+      }, 300);
       return {
         success: true,
         data: { sent: false, reason: 'redirecting_to_chat', message: '继续沟通，等待跳转到聊天页' }
       };
     }
 
-    // 8. 最终兜底
+    // 3. "立即沟通" 场景: 点击后会弹窗，不会导航
+    chatBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await sleep(500);
+    chatBtn.click();
+    console.log('[FindJobs] 已点击按钮');
+
+    // 4. 等待弹窗出现
+    await sleep(2000);
+
+    // 5. 在弹窗中输入文案并发送
+    const popupResult = await tryPopupGreeting(greetingText);
+    if (popupResult) {
+      return popupResult;
+    }
+
+    // 6. 兜底: 可能意外跳转到聊天页 (SPA 路由)
+    if (window.location.href.includes('/web/geek/chat')) {
+      return await sendGreetingOnChatPage(greetingText);
+    }
+
+    // 7. 最终兜底
     return {
       success: true,
       data: { sent: false, reason: 'button_clicked', message: '已点击沟通按钮，但未检测到弹窗或页面跳转' }
