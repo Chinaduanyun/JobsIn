@@ -252,14 +252,38 @@ export default function JobsPage() {
           <Search className="h-4 w-4" />
         </Button>
         {data.items.length > 0 && (
-          <Button onClick={toggleSelectAll} variant="outline" size="sm" className="ml-auto">
-            {selectedIds.size === data.items.length ? (
-              <CheckSquare className="h-4 w-4 mr-1" />
-            ) : (
-              <Square className="h-4 w-4 mr-1" />
-            )}
-            全选
-          </Button>
+          <div className="flex gap-1 ml-auto">
+            <Button onClick={toggleSelectAll} variant="outline" size="sm">
+              {selectedIds.size === data.items.length ? (
+                <CheckSquare className="h-4 w-4 mr-1" />
+              ) : (
+                <Square className="h-4 w-4 mr-1" />
+              )}
+              全选
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const ids = data.items.filter(j => !j.analysis).map(j => j.id)
+                setSelectedIds(new Set(ids))
+              }}
+            >
+              <Brain className="h-3.5 w-3.5 mr-1" />
+              未分析 ({data.items.filter(j => !j.analysis).length})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const ids = data.items.filter(j => !j.analysis?.greeting_text).map(j => j.id)
+                setSelectedIds(new Set(ids))
+              }}
+            >
+              <MessageSquare className="h-3.5 w-3.5 mr-1" />
+              未生成文案 ({data.items.filter(j => !j.analysis?.greeting_text).length})
+            </Button>
+          </div>
         )}
       </div>
 

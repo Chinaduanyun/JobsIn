@@ -195,6 +195,19 @@ async def get_job(job_id: int, session: AsyncSession = Depends(get_session)):
 async def delete_job(job_id: int, session: AsyncSession = Depends(get_session)):
     job = await session.get(Job, job_id)
     if job:
+        # 级联删除关联的分析和投递记录
+        analyses = (await session.execute(
+            select(JobAnalysis).where(JobAnalysis.job_id == job_id)
+        )).scalars().all()
+        for a in analyses:
+            await session.delete(a)
+
+        apps = (await session.execute(
+            select(Application).where(Application.job_id == job_id)
+        )).scalars().all()
+        for a in apps:
+            await session.delete(a)
+
         await session.delete(job)
         await session.commit()
     return {"ok": True}
@@ -210,6 +223,19 @@ async def batch_delete_jobs(data: BatchDeleteRequest, session: AsyncSession = De
     for jid in data.job_ids:
         job = await session.get(Job, jid)
         if job:
+            # 级联删除关联的分析和投递记录
+            analyses = (await session.execute(
+                select(JobAnalysis).where(JobAnalysis.job_id == jid)
+            )).scalars().all()
+            for a in analyses:
+                await session.delete(a)
+
+            apps = (await session.execute(
+                select(Application).where(Application.job_id == jid)
+            )).scalars().all()
+            for a in apps:
+                await session.delete(a)
+
             await session.delete(job)
             deleted += 1
     await session.commit()
