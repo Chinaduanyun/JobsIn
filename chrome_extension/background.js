@@ -34,11 +34,15 @@ async function pollCommand() {
 
     if (!resp.ok) {
       connected = false;
+      updateConnectionIcon();
       scheduleNextPoll();
       return;
     }
 
+    const wasConnected = connected;
     connected = true;
+    if (!wasConnected) updateConnectionIcon();
+
     const data = await resp.json();
 
     if (data && data.id) {
@@ -46,7 +50,10 @@ async function pollCommand() {
       await executeCommand(data);
     }
   } catch (err) {
-    connected = false;
+    if (connected) {
+      connected = false;
+      updateConnectionIcon();
+    }
     console.debug('[FindJobs] 轮询失败:', err.message);
   }
 
@@ -56,6 +63,17 @@ async function pollCommand() {
 function scheduleNextPoll() {
   if (isPolling) {
     setTimeout(pollCommand, POLL_INTERVAL);
+  }
+}
+
+// ── 连接状态图标更新 ─────────────────────────
+function updateConnectionIcon() {
+  if (connected) {
+    chrome.action.setBadgeText({ text: ' ' });
+    chrome.action.setBadgeBackgroundColor({ color: '#22c55e' }); // green
+  } else {
+    chrome.action.setBadgeText({ text: ' ' });
+    chrome.action.setBadgeBackgroundColor({ color: '#9ca3af' }); // gray
   }
 }
 
@@ -468,6 +486,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.storage.local.get(['mode'], (result) => {
   currentMode = result.mode || 'auto';
   console.log('[FindJobs] 初始模式:', currentMode);
+  updateConnectionIcon(); // 初始灰色
   if (currentMode === 'auto') {
     startPolling();
   }
