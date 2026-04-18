@@ -177,7 +177,7 @@ function extractJobs() {
 
     const hrNameEl = card.querySelector('.info-public em, .boss-name');
     const hrTitleEl = card.querySelector('.info-public .name, .boss-title');
-    const hrOnlineEl = card.querySelector('.boss-online-tag');
+    const hrOnlineEl = card.querySelector('.boss-online-tag, .boss-active-time');
 
     const companySizeEl = card.querySelector('.company-tag-list li:last-child');
     const companyIndustryEl = card.querySelector('.company-tag-list li:first-child');

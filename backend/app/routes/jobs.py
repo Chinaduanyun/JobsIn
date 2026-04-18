@@ -240,3 +240,19 @@ async def batch_delete_jobs(data: BatchDeleteRequest, session: AsyncSession = De
             deleted += 1
     await session.commit()
     return {"deleted": deleted}
+
+
+@router.post("/clear-all")
+async def clear_all_data(session: AsyncSession = Depends(get_session)):
+    """清除所有岗位及关联数据（分析、投递、批次、采集任务）"""
+    from app.models import ApplicationBatch, CollectionTask
+
+    tables = [JobAnalysis, Application, ApplicationBatch, Job, CollectionTask]
+    counts = {}
+    for model in tables:
+        rows = (await session.execute(select(model))).scalars().all()
+        counts[model.__tablename__] = len(rows)
+        for row in rows:
+            await session.delete(row)
+    await session.commit()
+    return {"cleared": counts}
