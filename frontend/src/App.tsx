@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AppLayout from '@/components/layout/AppLayout'
 import DashboardPage from '@/pages/DashboardPage'
 import JobsPage from '@/pages/JobsPage'
@@ -6,7 +6,6 @@ import RecommendationsPage from '@/pages/RecommendationsPage'
 import ApplicationsPage from '@/pages/ApplicationsPage'
 import TasksPage from '@/pages/TasksPage'
 import ResumesPage from '@/pages/ResumesPage'
-import SettingsPage from '@/pages/SettingsPage'
 
 function App() {
   return (
@@ -19,7 +18,7 @@ function App() {
           <Route path="/applications" element={<ApplicationsPage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/resumes" element={<ResumesPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>

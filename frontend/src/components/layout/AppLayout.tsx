@@ -5,7 +5,6 @@ import {
   Briefcase,
   ListTodo,
   FileText,
-  Settings,
   Send,
   Star,
 } from 'lucide-react'
@@ -17,7 +16,6 @@ const navItems = [
   { to: '/applications', icon: Send, label: '投递管理' },
   { to: '/tasks', icon: ListTodo, label: '采集任务' },
   { to: '/resumes', icon: FileText, label: '简历管理' },
-  { to: '/settings', icon: Settings, label: '系统设置' },
 ]
 
 export default function AppLayout() {
