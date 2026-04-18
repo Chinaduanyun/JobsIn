@@ -4,10 +4,15 @@
 
 ## 变更内容
 
-### 1. Chrome Extension 投递功能
-- `content.js`: 新增 `applyJob()` 函数 — 查找并点击"立即沟通"按钮
-- `content.js`: 新增 `sendGreetingInChat()` — 在聊天输入框输入文案并发送
-- `background.js`: 新增 `apply_job` 命令处理器 — 导航到岗位页面并调用 content script
+### 1. Chrome Extension 投递功能 (重写)
+- `content.js`: 重写 `applyJob()` — 精确选择器避免误点"感兴趣"按钮
+  - 优先使用 `a.btn.btn-startchat` 精确匹配
+  - 支持 `data-isfriend` 属性检测
+  - 处理两种场景：弹窗对话框 (首次沟通) 和聊天页跳转 (已是好友)
+- `content.js`: 新增 `tryPopupGreeting()` — 处理首次沟通的弹窗 (含"请简短描述您的问题"输入框)
+- `content.js`: 新增 `sendGreetingOnChatPage()` — 在 `/web/geek/chat` 页面输入文案 (使用 `#chat-input` + `.btn-send`)
+- `content.js`: 新增 `typeIntoInput()` — 统一输入函数 (支持 textarea/input/contenteditable)
+- `background.js`: `apply_job` 命令处理器 — 导航到岗位页面并调用 content script
 
 ### 2. 后端投递实际发送
 - `boss_applicant.py`: 完全重写，通过 `extension_bridge.send_command("apply_job")` 实际发送
@@ -26,15 +31,22 @@
 - `POST /api/applications/batches/{id}/pause` — 暂停批次
 - `POST /api/applications/batches/{id}/resume` — 恢复批次
 - `POST /api/applications/{id}/pause` — 暂停单个投递
+- `POST /api/applications/{id}/retry` — 重新投递 (recorded/failed/paused 状态)
 
 ### 5. 前端投递页面重设计 (ApplicationsPage.tsx)
 - 视图模式切换：全部 / 单个 / 批次
-- 单个投递：完整岗位信息卡片 (标题、公司、薪资、城市、标签、AI匹配度、文案)
-- 批次投递：可折叠卡片，显示进度条、成功/失败统计，展开查看每个投递
-- 暂停/恢复按钮支持批次和单个投递
+- 单个投递：分栏卡片 (对齐 JobsPage 风格)
+- 批次投递：可折叠卡片，显示进度条、成功/失败统计
+- 暂停/恢复/重新投递按钮
+- 重试按钮：recorded/failed/paused 状态可点击重新投递
 
-### 6. API 客户端更新
-- `api.ts`: 新增 `applications.listBatches`, `getBatch`, `pauseBatch`, `resumeBatch`, `pause`
+### 6. 页面实时刷新
+- JobsPage: 5s 自动刷新
+- DashboardPage: 5s 自动刷新
+- ApplicationsPage: 10s 自动刷新
+
+### 7. API 客户端更新
+- `api.ts`: 新增 `applications.listBatches`, `getBatch`, `pauseBatch`, `resumeBatch`, `pause`, `retry`
 
 ## 投递流程
 
@@ -45,9 +57,23 @@
   ↓
 通过 extension_bridge 发送 apply_job 命令
   ↓
-Chrome Extension background.js 导航到岗位页面
+Chrome Extension background.js 导航到岗位详情页
   ↓
-content.js 点击"立即沟通" → 输入文案 → 发送
+content.js applyJob():
+  1. 找 a.btn.btn-startchat (精确选择器)
+  2. 点击按钮
+  3a. 首次沟通 → 弹窗出现 → tryPopupGreeting() → 输入文案 → 发送
+  3b. 已是好友 → 跳转 /web/geek/chat → sendGreetingOnChatPage() → 输入 → 发送
   ↓
 返回结果 → 更新 status (sent / recorded / failed)
 ```
+
+## Boss直聘按钮选择器 (2025 验证)
+
+| 元素 | 选择器 | 说明 |
+|------|--------|------|
+| 立即沟通 | `a.btn.btn-startchat` | data-isfriend="false" |
+| 继续沟通 | `a.btn.btn-startchat` | data-isfriend="true" |
+| 聊天输入框 | `#chat-input` | 聊天页面 |
+| 发送按钮 | `.btn-send` | 聊天页面 |
+| 弹窗输入框 | placeholder 含 "描述"/"问题" | 首次沟通弹窗 |
