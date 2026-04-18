@@ -36,16 +36,71 @@ def _find_free_port() -> int:
 
 
 def _detect_system_chrome() -> Optional[str]:
+    """检测系统 Chrome 路径，支持 macOS / Linux / Windows + CHROME_PATH 环境变量"""
+    import os
     import platform as _platform
-    if _platform.system() == "Darwin":
-        p = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        if Path(p).exists():
-            return p
-    elif _platform.system() == "Linux":
-        for p in ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable",
-                   "/usr/bin/chromium-browser", "/usr/bin/chromium"]:
+    import shutil
+
+    # 优先使用环境变量
+    env_path = os.environ.get("CHROME_PATH")
+    if env_path and Path(env_path).exists():
+        return env_path
+
+    system = _platform.system()
+
+    if system == "Darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]
+        for p in candidates:
+            if Path(p).exists():
+                return str(p)
+
+    elif system == "Linux":
+        candidates = [
+            "/usr/bin/google-chrome",
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium",
+            "/snap/bin/chromium",
+        ]
+        for p in candidates:
             if Path(p).exists():
                 return p
+        # which 兜底
+        found = shutil.which("google-chrome") or shutil.which("chromium-browser") or shutil.which("chromium")
+        if found:
+            return found
+
+    elif system == "Windows":
+        import winreg
+        # 常见 Windows 安装路径
+        candidates = []
+        for env_var in ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"]:
+            base = os.environ.get(env_var)
+            if base:
+                candidates.append(Path(base) / "Google/Chrome/Application/chrome.exe")
+        # 常见固定路径
+        candidates.extend([
+            Path("C:/Program Files/Google/Chrome/Application/chrome.exe"),
+            Path("C:/Program Files (x86)/Google/Chrome/Application/chrome.exe"),
+            Path.home() / "AppData/Local/Google/Chrome/Application/chrome.exe",
+        ])
+        for p in candidates:
+            if p.exists():
+                return str(p)
+        # 注册表查找
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                 r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe")
+            chrome_path, _ = winreg.QueryValueEx(key, "")
+            winreg.CloseKey(key)
+            if chrome_path and Path(chrome_path).exists():
+                return chrome_path
+        except (FileNotFoundError, OSError):
+            pass
+
     return None
 
 
@@ -90,7 +145,10 @@ class BossBrowser:
 
         chrome_path = _detect_system_chrome()
         if not chrome_path:
-            raise RuntimeError("未找到系统 Chrome，请安装 Google Chrome")
+            raise RuntimeError(
+                "未找到系统 Chrome，请安装 Google Chrome。"
+                "或设置环境变量 CHROME_PATH 指向 Chrome 可执行文件路径"
+            )
 
         chrome_args = [
             chrome_path,
@@ -178,7 +236,11 @@ class BossBrowser:
                 await pw.stop()
         finally:
             try:
-                proc.send_signal(signal.SIGTERM)
+                import platform as _platform
+                if _platform.system() == "Windows":
+                    proc.terminate()
+                else:
+                    proc.send_signal(signal.SIGTERM)
                 proc.wait(timeout=5)
             except Exception:
                 try:
@@ -225,7 +287,11 @@ class BossBrowser:
     def _kill_chrome(self) -> None:
         if self._chrome_proc and self._chrome_proc.poll() is None:
             try:
-                self._chrome_proc.send_signal(signal.SIGTERM)
+                import platform as _platform
+                if _platform.system() == "Windows":
+                    self._chrome_proc.terminate()
+                else:
+                    self._chrome_proc.send_signal(signal.SIGTERM)
                 self._chrome_proc.wait(timeout=5)
             except Exception:
                 try:

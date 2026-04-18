@@ -39,13 +39,8 @@ if ! python3 -c "import fastapi" 2>/dev/null; then
     pip install -r "$DIR/backend/requirements.txt" -q
 fi
 
-# 安装 Playwright 浏览器（如果没装过）
-if ! python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null; then
-    echo "安装 Playwright..."
-    pip install playwright -q
-fi
-CHROMIUM_DIR="$HOME/Library/Caches/ms-playwright"
-if [ ! -d "$CHROMIUM_DIR" ] || [ -z "$(ls -A "$CHROMIUM_DIR" 2>/dev/null)" ]; then
+# 安装 Playwright 浏览器（跨平台检测）
+if ! python3 -c "from playwright.sync_api import sync_playwright; b=sync_playwright().start(); b.stop()" 2>/dev/null; then
     echo "安装 Playwright Chromium 浏览器..."
     python3 -m playwright install chromium
 fi
