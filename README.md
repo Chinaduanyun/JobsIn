@@ -1,15 +1,15 @@
-# FindJobs - Boss直聘智能岗位采集与投递系统
+# JobsIn - 多平台智能岗位采集与投递系统
 
-智能采集 Boss直聘 岗位 → AI 匹配评分 → AI 生成沟通文案 → 自动投递
+多平台岗位智能采集 → AI 匹配评分 → AI 生成个性化沟通文案 → 自动投递
 
 ## 功能
 
-- 🔍 按关键词/城市/薪资采集 Boss直聘岗位（Chrome Extension 自动化）
+- 🔍 多平台岗位采集：支持 Boss直聘（已实现）、智联招聘 / 前程无忧 / 猎聘（架构已预留）
 - 🤖 AI 多维度岗位匹配评分（技能/经验/学历/薪资）
 - ✍️ AI 根据岗位 JD + 你的简历生成个性化打招呼文案
-- 📊 Web 界面：岗位浏览、AI推荐、采集任务管理、投递状态查看
-- 🚀 一键投递 / 批量投递：通过 Chrome Extension 在 Boss直聘 发起沟通
-- 🔒 使用系统 Chrome + 独立 Profile，登录态持久保存
+- 📊 Web 界面：岗位浏览、AI 推荐排序、采集任务管理、投递状态追踪
+- 🚀 一键投递 / 批量投递：通过 Chrome Extension 自动化操作
+- 🔒 使用系统 Chrome + 独立 Profile，登录态持久保存，无自动化痕迹
 
 ## 技术栈
 
@@ -45,9 +45,9 @@ git clone https://github.com/你的用户名/JobsIn.git
 cd JobsIn
 
 # 或解压压缩包
-tar -xzf FindJobs.tar.gz   # macOS / Linux
+tar -xzf JobsIn.tar.gz   # macOS / Linux
 # Windows: 右键解压 zip 文件
-cd FindJobs
+cd JobsIn
 ```
 
 ### 2. 安装后端依赖
@@ -210,7 +210,7 @@ python start.py
 ## 项目结构
 
 ```
-FindJobs/
+JobsIn/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI 入口
@@ -256,7 +256,7 @@ FindJobs/
 ### Chrome Extension 显示灰色（未连接）
 - 确保后端已启动 (`http://localhost:27788/api/health`)
 - 检查扩展是否已启用
-- 刷新扩展: `chrome://extensions/` → FindJobs 助手 → 刷新按钮
+- 刷新扩展: `chrome://extensions/` → JobsIn 助手 → 刷新按钮
 
 ### Boss直聘检测到自动化
 - 本项目使用系统 Chrome + 独立 Profile，不使用 Playwright 控制浏览器
@@ -277,10 +277,22 @@ pip install uvicorn
 chmod +x start.sh
 ```
 
+## 支持平台
+
+| 招聘平台 | 状态 | 说明 |
+|---------|------|------|
+| Boss直聘 | ✅ 已实现 | 岗位采集 + AI分析 + 自动投递 |
+| 智联招聘 | 🔧 架构预留 | Scraper 接口已定义，待实现 |
+| 前程无忧 (51job) | 🔧 架构预留 | Scraper 接口已定义，待实现 |
+| 猎聘 | 🔧 架构预留 | Scraper 接口已定义，待实现 |
+
+> 系统采用平台无关的 Scraper 架构（`BaseScraper` 抽象基类），新增平台只需实现 `scrape_page()` / `fetch_detail()` / `resolve_city_code()` 三个方法。
+
 ## 注意事项
 
 - 本项目仅供个人学习使用
-- Boss直聘有反爬检测，采集频率不要太高（已内置随机延迟）
+- 各招聘平台均有反爬检测，采集频率不要太高（已内置随机延迟）
 - 每日投递有上限（默认100，可在设置中调整）
 - 数据存储在 `backend/data/` 目录下（SQLite 数据库 + 登录 Cookie）
 - Chrome Profile 存储在 `backend/data/chrome_profile/`，登录状态跨会话保持
+- 支持 macOS / Windows / Linux 三平台运行

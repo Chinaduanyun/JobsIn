@@ -30,8 +30,8 @@ export default function AppLayout() {
       {/* Sidebar */}
       <aside className="w-56 border-r bg-muted/30 flex flex-col">
         <div className="p-4 border-b">
-          <h1 className="text-lg font-bold">🔍 FindJobs</h1>
-          <p className="text-xs text-muted-foreground">Boss直聘智能投递</p>
+          <h1 className="text-lg font-bold">🔍 JobsIn</h1>
+          <p className="text-xs text-muted-foreground">多平台智能投递</p>
         </div>
         <nav className="flex-1 p-2 space-y-1">
           {navItems.map((item) => (
@@ -53,7 +53,7 @@ export default function AppLayout() {
           ))}
         </nav>
         <div className="p-3 border-t text-xs text-muted-foreground">
-          FindJobs v{version}
+          JobsIn v{version}
         </div>
       </aside>
 

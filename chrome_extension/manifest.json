@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "FindJobs 助手",
+  "name": "JobsIn 助手",
   "version": "1.1.0",
-  "description": "FindJobs 岗位采集助手 — 从 Boss 直聘提取岗位数据",
+  "description": "JobsIn 多平台岗位采集助手 — 智能采集与自动投递",
   "permissions": [
     "tabs",
     "activeTab",
@@ -26,6 +26,6 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "FindJobs 助手"
+    "default_title": "JobsIn 助手"
   }
 }
