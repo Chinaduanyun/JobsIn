@@ -248,10 +248,56 @@ async function handleApplyJob(cmd) {
       action: 'apply_job',
       greeting_text: greeting_text || '',
     }, 20000);
+
+    // 检查是否需要在聊天页继续操作 (继续沟通场景 — 页面跳转)
+    if (response && response.data && response.data.reason === 'redirecting_to_chat') {
+      console.log('[FindJobs] 等待聊天页加载...');
+      // 等待页面跳转到聊天页
+      await waitForNavigation(tid, '/web/geek/chat', 10000);
+      await new Promise(r => setTimeout(r, 2000));
+
+      // 在聊天页上发送文案
+      const chatResponse = await sendToContent(tid, {
+        action: 'send_chat_greeting',
+        greeting_text: greeting_text || '',
+      }, 15000);
+      return { success: true, data: chatResponse };
+    }
+
     return { success: true, data: response };
   } catch (err) {
     return { success: false, error: `投递操作失败: ${err.message}` };
   }
+}
+
+/**
+ * 等待标签页导航到包含指定路径的 URL
+ */
+function waitForNavigation(tid, urlContains, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve(); // 超时不算失败，可能已经在目标页了
+    }, timeoutMs);
+
+    function listener(updatedTabId, changeInfo, tab) {
+      if (updatedTabId === tid && changeInfo.status === 'complete' && tab.url && tab.url.includes(urlContains)) {
+        chrome.tabs.onUpdated.removeListener(listener);
+        clearTimeout(timer);
+        setTimeout(() => resolve(), 1500);
+      }
+    }
+
+    // 先检查当前是否已在目标页
+    chrome.tabs.get(tid).then(tab => {
+      if (tab.url && tab.url.includes(urlContains)) {
+        clearTimeout(timer);
+        resolve();
+      } else {
+        chrome.tabs.onUpdated.addListener(listener);
+      }
+    });
+  });
 }
 
 // ── 启动/停止轮询 ────────────────────────────

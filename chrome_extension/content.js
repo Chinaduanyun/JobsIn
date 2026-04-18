@@ -32,6 +32,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     applyJob(message.greeting_text || '').then(sendResponse);
     return true; // async response
   }
+
+  if (message.action === 'send_chat_greeting') {
+    // 在聊天页面发送文案 (由 background.js 在页面跳转后调用)
+    sendGreetingOnChatPage(message.greeting_text || '').then(sendResponse);
+    return true;
+  }
 });
 
 // ── 字体解密工具 ─────────────────────────────
@@ -383,20 +389,26 @@ async function applyJob(greetingText) {
 
     // 6. 检查是否跳转到聊天页面 (已是好友场景)
     const currentUrl = window.location.href;
-    if (currentUrl.includes('/chat/') || currentUrl !== urlBefore) {
-      console.log('[FindJobs] 页面已跳转到:', currentUrl);
+    if (currentUrl.includes('/web/geek/chat')) {
+      // 已经在聊天页 (SPA 路由)，直接发送
+      console.log('[FindJobs] 已在聊天页:', currentUrl);
       return await sendGreetingOnChatPage(greetingText);
     }
 
-    // 7. 既没弹窗也没跳转 — 可能按钮触发了 redirect-url
+    // 7. 按钮有 redirect-url — 通知 background.js 等待页面跳转后再操作
     const redirectUrl = chatBtn.getAttribute('redirect-url');
-    if (redirectUrl) {
-      console.log('[FindJobs] 使用 redirect-url 跳转:', redirectUrl);
-      window.location.href = redirectUrl.startsWith('http')
-        ? redirectUrl
-        : 'https://www.zhipin.com' + redirectUrl;
-      await sleep(3000);
-      return await sendGreetingOnChatPage(greetingText);
+    if (redirectUrl || isFriend) {
+      console.log('[FindJobs] 继续沟通，页面将跳转到聊天页');
+      // 如果还没跳转，手动触发
+      if (redirectUrl && currentUrl === urlBefore) {
+        window.location.href = redirectUrl.startsWith('http')
+          ? redirectUrl
+          : 'https://www.zhipin.com' + redirectUrl;
+      }
+      return {
+        success: true,
+        data: { sent: false, reason: 'redirecting_to_chat', message: '继续沟通，等待跳转到聊天页' }
+      };
     }
 
     // 8. 最终兜底
