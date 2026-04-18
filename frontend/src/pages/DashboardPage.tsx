@@ -12,19 +12,24 @@ export default function DashboardPage() {
   })
 
   useEffect(() => {
-    Promise.all([
-      jobs.list({ page: 1, page_size: 1 }),
-      tasks.list(),
-      resumes.list(),
-      applications.today(),
-    ]).then(([jobRes, taskList, resumeList, todayRes]) => {
-      setStats({
-        totalJobs: jobRes.total,
-        activeTasks: taskList.filter((t) => t.status === 'running').length,
-        hasResume: resumeList.some((r) => r.is_active),
-        appliedToday: todayRes.count,
-      })
-    }).catch(() => {})
+    const fetchStats = () => {
+      Promise.all([
+        jobs.list({ page: 1, page_size: 1 }),
+        tasks.list(),
+        resumes.list(),
+        applications.today(),
+      ]).then(([jobRes, taskList, resumeList, todayRes]) => {
+        setStats({
+          totalJobs: jobRes.total,
+          activeTasks: taskList.filter((t) => t.status === 'running').length,
+          hasResume: resumeList.some((r) => r.is_active),
+          appliedToday: todayRes.count,
+        })
+      }).catch(() => {})
+    }
+    fetchStats()
+    const timer = setInterval(fetchStats, 5000)
+    return () => clearInterval(timer)
   }, [])
 
   const cards = [

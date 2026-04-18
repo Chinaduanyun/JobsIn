@@ -50,6 +50,14 @@ export default function JobsPage() {
     fetchJobs(page, keyword)
   }, [page])
 
+  // 自动刷新：每5秒检查是否有新岗位
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchJobs(page, keyword)
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [page, keyword])
+
   const handleSearch = () => {
     setPage(1)
     fetchJobs(1, keyword)
