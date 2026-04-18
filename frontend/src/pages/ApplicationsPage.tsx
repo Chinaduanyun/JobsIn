@@ -148,69 +148,75 @@ export default function ApplicationsPage() {
 
   const renderAppCard = (app: ApplicationItem, compact = false) => (
     <Card key={app.id} className={`hover:shadow-md transition-shadow ${compact ? 'border-l-4 border-l-blue-200' : ''}`}>
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-base truncate">{app.job_title || `岗位 #${app.job_id}`}</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              {app.job_company}
-              {app.job_city && ` · ${app.job_city}`}
-              {app.job_experience && ` · ${app.job_experience}`}
-              {app.job_education && ` · ${app.job_education}`}
-            </p>
-            {app.job_tags && (
-              <div className="flex flex-wrap gap-1 mt-1">
-                {app.job_tags.split(',').filter(Boolean).slice(0, 5).map((tag, i) => (
-                  <Badge key={i} variant="outline" className="text-xs">{tag.trim()}</Badge>
-                ))}
+      <CardContent className="p-0">
+        <div className="flex">
+          {/* ===== 左半：岗位信息 + AI分析 ===== */}
+          <div className="flex-1 min-w-0 py-3 pl-4 pr-2 border-r border-dashed">
+            {/* 标题行 */}
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-medium text-sm truncate">{app.job_title || `岗位 #${app.job_id}`}</span>
+              {app.job_salary && (
+                <span className="font-semibold text-sm text-orange-600 flex-shrink-0">{app.job_salary}</span>
+              )}
+              {app.overall_score !== null && (
+                <span className="text-sm font-semibold text-blue-600 flex-shrink-0">
+                  匹配 {Math.round(app.overall_score * 100)}分
+                </span>
+              )}
+              {statusBadge(app.status)}
+              {(app.status === 'pending' || app.status === 'sending') && (
+                <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => handlePauseSingle(app.id)}>
+                  <Pause className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+            {/* AI 分析建议 */}
+            {app.suggestion && (
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md p-2 mb-1.5 max-h-[60px] overflow-y-auto">
+                <p className="flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-400 mb-0.5">
+                  <Brain className="h-3 w-3" /> AI 分析
+                </p>
+                <p className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed whitespace-pre-wrap line-clamp-2">{app.suggestion}</p>
               </div>
             )}
-          </div>
-          <div className="flex items-center gap-2 ml-2 flex-shrink-0">
-            {app.job_salary && (
-              <Badge variant="secondary" className="text-orange-600">{app.job_salary}</Badge>
-            )}
-            {statusBadge(app.status)}
-            {(app.status === 'pending' || app.status === 'sending') && (
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handlePauseSingle(app.id)}>
-                <Pause className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {app.overall_score !== null && (
-          <div className="bg-blue-50 dark:bg-blue-950/30 rounded-md p-3 text-sm">
-            <div className="flex items-center justify-between mb-1">
-              <span className="flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-400">
-                <Brain className="h-3 w-3" /> AI 匹配度
-              </span>
-              <span className="text-sm font-bold text-blue-700 dark:text-blue-400">
-                {Math.round(app.overall_score * 100)} 分
-              </span>
+            {/* 底部信息 */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+              {app.job_company && <span>{app.job_company}</span>}
+              {app.job_city && <span className="bg-muted px-1.5 py-0.5 rounded">{app.job_city}</span>}
+              {app.job_experience && <span className="bg-muted px-1.5 py-0.5 rounded">{app.job_experience}</span>}
+              {app.job_education && <span className="bg-muted px-1.5 py-0.5 rounded">{app.job_education}</span>}
+              {app.job_tags && app.job_tags.split(',').filter(Boolean).slice(0, 3).map((tag, i) => (
+                <span key={i} className="bg-muted px-1.5 py-0.5 rounded">{tag.trim()}</span>
+              ))}
             </div>
-            <Progress value={app.overall_score * 100} className="h-1.5" />
-            {!compact && app.suggestion && (
-              <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{app.suggestion}</p>
+          </div>
+
+          {/* ===== 右半：沟通文案 + 操作 ===== */}
+          <div className="flex-1 min-w-0 py-3 pl-2 pr-4">
+            {/* 沟通文案 */}
+            {(app.ai_greeting || app.greeting_text) ? (
+              <div className="bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-md p-2 mb-1.5 max-h-[80px] overflow-y-auto">
+                <p className="flex items-center gap-1 text-xs font-medium text-purple-700 dark:text-purple-400 mb-0.5">
+                  <MessageSquare className="h-3 w-3" /> 沟通文案
+                </p>
+                <p className="text-xs text-purple-900 dark:text-purple-200 leading-relaxed whitespace-pre-wrap">{app.greeting_text || app.ai_greeting}</p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground py-2">暂无沟通文案</p>
             )}
+            {/* 底部操作 */}
+            <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-0.5">
+                <Clock className="h-3 w-3" />
+                {formatTime(app.applied_at || app.created_at)}
+              </span>
+              {app.job_url && (
+                <a href={app.job_url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">
+                  查看岗位 ↗
+                </a>
+              )}
+            </div>
           </div>
-        )}
-        {(app.ai_greeting || app.greeting_text) && (
-          <div className="bg-muted/50 rounded-md p-3 text-sm">
-            <p className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-              <MessageSquare className="h-3 w-3" /> 沟通文案
-            </p>
-            <p className="whitespace-pre-wrap line-clamp-3">{app.greeting_text || app.ai_greeting}</p>
-          </div>
-        )}
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>投递时间: {formatTime(app.applied_at || app.created_at)}</span>
-          {app.job_url && (
-            <a href={app.job_url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">
-              查看岗位 ↗
-            </a>
-          )}
         </div>
       </CardContent>
     </Card>
