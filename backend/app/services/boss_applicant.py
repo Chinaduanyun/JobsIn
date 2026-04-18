@@ -66,7 +66,14 @@ async def _send_via_extension(job: Job, greeting_text: str) -> dict:
             raise RuntimeError("安全验证触发，请在浏览器中完成验证")
         raise RuntimeError(f"投递失败: {error}")
 
-    return result.get("data", {})
+    # background.js 返回 { success, data: contentResponse }
+    # contentResponse 是 content.js 的 sendResponse 值: { success, data: { sent, message } }
+    content_response = result.get("data", {})
+    inner_data = content_response.get("data", {}) if isinstance(content_response, dict) else {}
+    # 兼容两种结构: 直接 sent 或嵌套在 data 里
+    if isinstance(inner_data, dict) and "sent" in inner_data:
+        return inner_data
+    return content_response
 
 
 async def apply_to_job(job_id: int, greeting_text: str | None = None) -> Application:

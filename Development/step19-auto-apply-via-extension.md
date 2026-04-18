@@ -89,3 +89,7 @@ content.js applyJob():
 - `tryPopupGreeting()`: 输入文案后优先用 Enter 发送，点击按钮作为兜底
 - `sendGreetingOnChatPage()`: 同上
 - 参考 ai-job-master 项目：该项目完全绕过 DOM，通过 API + WebSocket/protobuf 发送消息
+
+### Bug: 投递状态始终显示 "recorded" 而非 "sent"
+- **原因**: content.js 返回 `{ success, data: { sent: true } }`，background.js 又包了一层 `{ success, data: response }`，导致双层嵌套。`boss_applicant.py` 只解了一层，读不到 `sent` 字段。
+- **修复**: `_send_via_extension()` 现在正确解嵌套结构，优先从 `data.data.sent` 取值。
