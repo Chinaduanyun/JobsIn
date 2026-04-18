@@ -331,26 +331,55 @@ function extractFullJob() {
 
 async function applyJob(greetingText) {
   try {
-    // 1. 找"立即沟通"按钮
-    const chatBtn = document.querySelector(
-      '.btn-startchat, .op-btn-chat, a.btn-startchat, .job-op .btn'
-    );
+    // 1. 找"立即沟通"按钮 — Boss直聘岗位详情页
+    const selectors = [
+      '.btn.btn-startchat',       // 最常见的选择器
+      '.btn-startchat',           // 简写
+      'a.btn-startchat',          // 有时是 a 标签
+      '.op-btn-chat',             // 备选
+      '.start-chat-btn',          // 另一种页面结构
+    ];
+
+    let chatBtn = null;
+    for (const sel of selectors) {
+      chatBtn = document.querySelector(sel);
+      if (chatBtn) break;
+    }
+
     if (!chatBtn) {
-      // 可能已经在聊天中
-      const continueChatBtn = document.querySelector('.btn-continue-chat, .op-btn-chat');
-      if (continueChatBtn) {
-        continueChatBtn.click();
-        await sleep(2000);
-        return await sendGreetingInChat(greetingText);
+      // 通过文本内容查找
+      const allBtns = document.querySelectorAll('a, button');
+      for (const btn of allBtns) {
+        const text = btn.innerText.trim();
+        if (text === '立即沟通' || text === '继续沟通') {
+          chatBtn = btn;
+          break;
+        }
       }
+    }
+
+    if (!chatBtn) {
       return { success: false, error: '未找到"立即沟通"按钮' };
     }
 
-    // 2. 点击"立即沟通"
-    chatBtn.click();
-    await sleep(2500);
+    // 检查按钮文本确认类型
+    const btnText = chatBtn.innerText.trim();
+    console.log('[FindJobs] 找到按钮:', btnText);
 
-    // 3. 检查是否弹出了聊天窗口或跳转到聊天页
+    // 2. 滚动到按钮并点击
+    chatBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await sleep(500);
+    chatBtn.click();
+    await sleep(3000);
+
+    // 3. 检查当前页面 — 可能跳转到聊天页面
+    const currentUrl = window.location.href;
+    if (currentUrl.includes('/chat/')) {
+      // 跳转到了聊天页面
+      return await sendGreetingInChat(greetingText);
+    }
+
+    // 4. 可能是弹窗聊天
     return await sendGreetingInChat(greetingText);
 
   } catch (e) {
@@ -360,53 +389,106 @@ async function applyJob(greetingText) {
 }
 
 async function sendGreetingInChat(greetingText) {
-  // 等待聊天输入框出现
-  let retries = 5;
+  // 等待聊天输入框出现 — 使用多种选择器
+  const inputSelectors = [
+    '.chat-input',
+    '.input-area textarea',
+    'div.chat-input[contenteditable="true"]',
+    '.chat-conversation textarea',
+    'textarea.chat-input',
+    '#chat-input',
+    '.message-input textarea',
+  ];
+
   let chatInput = null;
-  while (retries > 0) {
-    chatInput = document.querySelector(
-      '.chat-input, .input-area textarea, [contenteditable="true"].chat-input, div[contenteditable="true"]'
-    );
-    if (chatInput) break;
-    await sleep(1000);
-    retries--;
+  let retries = 8;
+  while (retries > 0 && !chatInput) {
+    for (const sel of inputSelectors) {
+      chatInput = document.querySelector(sel);
+      if (chatInput) break;
+    }
+    if (!chatInput) {
+      await sleep(1000);
+      retries--;
+    }
   }
 
   if (!chatInput) {
-    // 可能跳转到了聊天页面，不是弹窗
-    return { success: true, data: { sent: false, reason: 'chat_page_redirect', message: '已点击沟通按钮，可能跳转到了聊天页面' } };
+    return {
+      success: true,
+      data: { sent: false, reason: 'chat_opened', message: '已点击沟通按钮，但未找到聊天输入框（可能跳转到聊天页面）' }
+    };
   }
 
   if (!greetingText) {
-    return { success: true, data: { sent: false, reason: 'no_greeting', message: '已打开聊天窗口，但无沟通文案' } };
+    return {
+      success: true,
+      data: { sent: false, reason: 'no_greeting', message: '已打开聊天窗口，但无沟通文案' }
+    };
   }
 
-  // 输入文案
-  if (chatInput.tagName === 'TEXTAREA' || chatInput.tagName === 'INPUT') {
+  // 输入文案 — 支持 textarea, input, contenteditable div
+  const tagName = chatInput.tagName.toUpperCase();
+  if (tagName === 'TEXTAREA' || tagName === 'INPUT') {
+    // 清空后逐字输入更自然
+    chatInput.focus();
+    chatInput.value = '';
     chatInput.value = greetingText;
     chatInput.dispatchEvent(new Event('input', { bubbles: true }));
     chatInput.dispatchEvent(new Event('change', { bubbles: true }));
   } else {
     // contenteditable div
+    chatInput.focus();
+    chatInput.innerText = '';
     chatInput.innerText = greetingText;
     chatInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  await sleep(500);
+  await sleep(800);
 
   // 点击发送按钮
-  const sendBtn = document.querySelector(
-    '.btn-send, .chat-op .send-btn, button[type="submit"].send, .btn-sure'
-  );
-  if (sendBtn && !sendBtn.disabled) {
+  const sendSelectors = [
+    '.send-btn',
+    '.btn-send',
+    '.chat-op .send-btn',
+    'button.btn-sure',
+    'button.send-message',
+  ];
+
+  let sendBtn = null;
+  for (const sel of sendSelectors) {
+    sendBtn = document.querySelector(sel);
+    if (sendBtn && !sendBtn.disabled) break;
+    sendBtn = null;
+  }
+
+  // 也尝试通过文本查找
+  if (!sendBtn) {
+    const allBtns = document.querySelectorAll('button, a.btn');
+    for (const btn of allBtns) {
+      if (btn.innerText.trim() === '发送' && !btn.disabled) {
+        sendBtn = btn;
+        break;
+      }
+    }
+  }
+
+  if (sendBtn) {
     sendBtn.click();
     await sleep(1000);
     return { success: true, data: { sent: true, message: '文案已发送' } };
   }
 
-  // 尝试回车发送
-  chatInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+  // 回车发送
+  chatInput.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true
+  }));
+  await sleep(300);
+  chatInput.dispatchEvent(new KeyboardEvent('keyup', {
+    key: 'Enter', keyCode: 13, code: 'Enter', bubbles: true
+  }));
   await sleep(500);
+
   return { success: true, data: { sent: true, message: '文案已通过回车发送' } };
 }
 

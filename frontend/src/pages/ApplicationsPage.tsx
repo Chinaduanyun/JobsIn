@@ -153,47 +153,47 @@ export default function ApplicationsPage() {
           {/* ===== 左半：岗位信息 + AI分析 ===== */}
           <div className="flex-1 min-w-0 py-3 pl-4 pr-2 border-r border-dashed">
             {/* 标题行 */}
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-1.5 mb-1">
               <span className="font-medium text-sm truncate">{app.job_title || `岗位 #${app.job_id}`}</span>
-              {app.job_salary && (
-                <span className="font-semibold text-sm text-orange-600 flex-shrink-0">{app.job_salary}</span>
-              )}
-              {app.overall_score !== null && (
-                <span className="text-sm font-semibold text-blue-600 flex-shrink-0">
-                  匹配 {Math.round(app.overall_score * 100)}分
-                </span>
-              )}
               {statusBadge(app.status)}
               {(app.status === 'pending' || app.status === 'sending') && (
-                <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={() => handlePauseSingle(app.id)}>
+                <Button variant="ghost" size="icon" className="h-5 w-5 flex-shrink-0" onClick={() => handlePauseSingle(app.id)}>
                   <Pause className="h-3 w-3" />
                 </Button>
               )}
             </div>
             {/* AI 分析建议 */}
-            {app.suggestion && (
-              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md p-2 mb-1.5 max-h-[60px] overflow-y-auto">
+            {app.suggestion ? (
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md p-2 mb-1.5 max-h-[80px] overflow-y-auto">
                 <p className="flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-400 mb-0.5">
                   <Brain className="h-3 w-3" /> AI 分析
                 </p>
-                <p className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed whitespace-pre-wrap line-clamp-2">{app.suggestion}</p>
+                <p className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed whitespace-pre-wrap">{app.suggestion}</p>
               </div>
-            )}
+            ) : null}
             {/* 底部信息 */}
             <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-              {app.job_company && <span>{app.job_company}</span>}
-              {app.job_city && <span className="bg-muted px-1.5 py-0.5 rounded">{app.job_city}</span>}
               {app.job_experience && <span className="bg-muted px-1.5 py-0.5 rounded">{app.job_experience}</span>}
               {app.job_education && <span className="bg-muted px-1.5 py-0.5 rounded">{app.job_education}</span>}
-              {app.job_tags && app.job_tags.split(',').filter(Boolean).slice(0, 3).map((tag, i) => (
-                <span key={i} className="bg-muted px-1.5 py-0.5 rounded">{tag.trim()}</span>
-              ))}
+              {app.job_company && <span>{app.job_company}</span>}
+              {app.job_city && <span>{app.job_city}</span>}
             </div>
           </div>
 
-          {/* ===== 右半：沟通文案 + 操作 ===== */}
+          {/* ===== 右半：薪资/匹配分 + 沟通文案 ===== */}
           <div className="flex-1 min-w-0 py-3 pl-2 pr-4">
-            {/* 沟通文案 */}
+            {/* 薪资 + 匹配分 */}
+            <div className="flex items-center justify-end gap-2 mb-1 text-sm">
+              {app.job_salary && (
+                <span className="font-semibold text-orange-600">{app.job_salary}</span>
+              )}
+              {app.overall_score !== null && (
+                <span className="font-semibold text-orange-600">
+                  匹配 {Math.round(app.overall_score * 100)}分
+                </span>
+              )}
+            </div>
+            {/* 沟通文案（紫色块） */}
             {(app.ai_greeting || app.greeting_text) ? (
               <div className="bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-md p-2 mb-1.5 max-h-[80px] overflow-y-auto">
                 <p className="flex items-center gap-1 text-xs font-medium text-purple-700 dark:text-purple-400 mb-0.5">
@@ -201,9 +201,7 @@ export default function ApplicationsPage() {
                 </p>
                 <p className="text-xs text-purple-900 dark:text-purple-200 leading-relaxed whitespace-pre-wrap">{app.greeting_text || app.ai_greeting}</p>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground py-2">暂无沟通文案</p>
-            )}
+            ) : null}
             {/* 底部操作 */}
             <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-0.5">
@@ -211,8 +209,8 @@ export default function ApplicationsPage() {
                 {formatTime(app.applied_at || app.created_at)}
               </span>
               {app.job_url && (
-                <a href={app.job_url} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">
-                  查看岗位 ↗
+                <a href={app.job_url} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" title="查看岗位">
+                  ↗
                 </a>
               )}
             </div>
