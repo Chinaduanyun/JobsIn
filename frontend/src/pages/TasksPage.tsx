@@ -31,7 +31,7 @@ type SuggestedKeyword = { keyword: string; reason: string; city: string; status:
 export default function TasksPage() {
   const [taskList, setTaskList] = useState<CollectionTask[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ platform: 'boss', keyword: '', city: '杭州', salary: '' })
+  const [form, setForm] = useState({ platform: 'boss', keyword: '', city: '杭州', salary: '', max_pages: 5 })
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus | null>(null)
   const [extConnected, setExtConnected] = useState(false)
@@ -87,7 +87,7 @@ export default function TasksPage() {
     setError('')
     try {
       await tasksApi.create(form)
-      setForm({ platform: 'boss', keyword: '', city: '杭州', salary: '' })
+      setForm({ platform: 'boss', keyword: '', city: '杭州', salary: '', max_pages: 5 })
       setShowForm(false)
       refresh()
     } catch (e: any) {
@@ -329,7 +329,7 @@ export default function TasksPage() {
       {showForm && (
         <Card className="mb-4">
           <CardContent className="pt-4">
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-5 gap-4">
               <div>
                 <Label>平台</Label>
                 <select
@@ -365,6 +365,18 @@ export default function TasksPage() {
                   value={form.salary}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, salary: e.target.value })}
                 />
+              </div>
+              <div>
+                <Label>最大页数</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  placeholder="5"
+                  value={form.max_pages}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, max_pages: parseInt(e.target.value) || 5 })}
+                />
+                <p className="text-xs text-muted-foreground mt-1">每页约30个岗位</p>
               </div>
             </div>
             <div className="flex gap-2 mt-4">
