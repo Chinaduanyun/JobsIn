@@ -418,71 +418,47 @@ async function applyJob(greetingText) {
  * @returns {object|null} 成功返回结果，未找到弹窗返回 null
  */
 async function tryPopupGreeting(greetingText) {
-  // 等待弹窗出现 — 多种可能的弹窗容器选择器
-  const dialogSelectors = [
-    '.dialog-container',
-    '.greet-dialog',
-    '.mini-dialog',
-    '.dialog-wrap',
-    '.boss-dialog',
-    '.startchat-dialog',
-    '[class*="dialog"]',
-    '[class*="Dialog"]',
-    '.sider-dialog',
-    '.chat-dialog',
-    '.greeting-dialog',
-  ];
-
-  let dialog = null;
-  for (const sel of dialogSelectors) {
-    try {
-      const els = document.querySelectorAll(sel);
-      for (const el of els) {
-        // 只要是可见的弹窗
-        if (el.offsetParent !== null || el.style.display !== 'none') {
-          dialog = el;
-          break;
-        }
-      }
-      if (dialog) break;
-    } catch { /* ignore invalid selector */ }
-  }
-
-  // 也检查页面中是否新出现了 overlay/modal
-  if (!dialog) {
-    const overlays = document.querySelectorAll('[class*="modal"], [class*="overlay"], [class*="popup"], [role="dialog"]');
-    for (const el of overlays) {
-      if (el.offsetParent !== null) {
-        dialog = el;
-        break;
-      }
-    }
-  }
-
-  // 在弹窗内 (或整个页面) 找输入框
-  // 优先在弹窗内找，找不到就在整个页面找 placeholder 匹配的
-  const searchRoot = dialog || document;
-
+  // 直接在整个页面搜索匹配的输入框 — Boss直聘弹窗的 class 名称不确定，
+  // 但输入框的 placeholder "请简短描述您的问题" 是确定的
   let input = null;
 
   // 方法1: 通过 placeholder 文本找 (最精确)
-  const allInputs = searchRoot.querySelectorAll('textarea, input[type="text"], [contenteditable="true"]');
+  const allInputs = document.querySelectorAll('textarea, input[type="text"], [contenteditable="true"]');
   for (const el of allInputs) {
-    const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+    const ph = (el.getAttribute('placeholder') || '');
     if (ph.includes('描述') || ph.includes('问题') || ph.includes('沟通') || ph.includes('打招呼') || ph.includes('说点什么')) {
       input = el;
       break;
     }
   }
 
-  // 方法2: 弹窗内的任意 textarea/input
-  if (!input && dialog) {
-    input = dialog.querySelector('textarea') || dialog.querySelector('input[type="text"]') || dialog.querySelector('[contenteditable="true"]');
+  // 方法2: 找 #chat-input (Boss直聘聊天框常用 ID)
+  if (!input) {
+    input = document.querySelector('#chat-input');
+  }
+
+  // 方法3: 找弹窗/对话框容器内的输入框
+  if (!input) {
+    const dialogSelectors = [
+      '[class*="dialog"]', '[class*="Dialog"]', '[class*="modal"]',
+      '[class*="popup"]', '[role="dialog"]', '[class*="chat-box"]',
+    ];
+    for (const sel of dialogSelectors) {
+      try {
+        const containers = document.querySelectorAll(sel);
+        for (const ctn of containers) {
+          if (ctn.offsetParent === null && ctn.style.display === 'none') continue;
+          const found = ctn.querySelector('textarea') || ctn.querySelector('input[type="text"]') || ctn.querySelector('[contenteditable="true"]');
+          if (found) { input = found; break; }
+        }
+        if (input) break;
+      } catch { /* ignore */ }
+    }
   }
 
   if (!input) {
     console.log('[FindJobs] 未找到弹窗输入框');
-    return null; // 没找到弹窗
+    return null;
   }
 
   console.log('[FindJobs] 找到弹窗输入框:', input.tagName, input.getAttribute('placeholder'));
@@ -498,21 +474,20 @@ async function tryPopupGreeting(greetingText) {
   await typeIntoInput(input, greetingText);
   await sleep(800);
 
-  // 找发送按钮 — 在弹窗内找
-  const btnRoot = dialog || document;
+  // 找发送按钮 — 搜索整个页面（弹窗在 DOM 层级不确定）
   let sendBtn = null;
 
   // 精确选择器
   const sendSelectors = ['.btn-send', '.send-btn', '.btn-sure', '.btn-confirm', '.submit-btn'];
   for (const sel of sendSelectors) {
-    sendBtn = btnRoot.querySelector(sel);
+    sendBtn = document.querySelector(sel);
     if (sendBtn && !sendBtn.disabled) break;
     sendBtn = null;
   }
 
-  // 文本查找发送按钮
+  // 文本查找发送按钮 — 找距离输入框最近的 "发送" 按钮
   if (!sendBtn) {
-    const btns = btnRoot.querySelectorAll('button, a.btn, [role="button"]');
+    const btns = document.querySelectorAll('button, a.btn, [role="button"]');
     for (const btn of btns) {
       const t = btn.innerText.trim();
       if ((t === '发送' || t === '确定' || t === '提交') && !btn.disabled) {
