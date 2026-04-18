@@ -132,6 +132,54 @@ async def pause_application(app_id: int):
     return {"message": "投递已暂停"}
 
 
+@router.post("/{app_id}/retry")
+async def retry_application(app_id: int, session: AsyncSession = Depends(get_session)):
+    """重新投递（recorded/failed 状态的投递）"""
+    app = await session.get(Application, app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail="投递记录不存在")
+    if app.status not in ("recorded", "failed", "paused"):
+        raise HTTPException(status_code=400, detail=f"状态 {app.status} 不可重试")
+
+    job = await session.get(Job, app.job_id)
+    if not job:
+        raise HTTPException(status_code=400, detail="岗位不存在")
+
+    # 更新状态为 sending
+    app.status = "sending"
+    await session.commit()
+
+    # 异步执行重新投递
+    import asyncio
+    asyncio.create_task(_retry_single(app.id, job, app.greeting_text))
+    return {"message": "重新投递已启动"}
+
+
+async def _retry_single(app_id: int, job, greeting_text: str):
+    """异步执行单个重新投递"""
+    from app.services.boss_applicant import _send_via_extension
+    from app.database import async_session as get_session_maker
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        result = await _send_via_extension(job, greeting_text)
+        sent = result.get("sent", False) if isinstance(result, dict) else False
+        status = "sent" if sent else "recorded"
+    except Exception as e:
+        logger.warning("[重新投递] 岗位 %d 失败: %s", job.id, e)
+        status = "failed"
+
+    async with get_session_maker() as session:
+        from datetime import datetime, timezone
+        app = await session.get(Application, app_id)
+        if app:
+            app.status = status
+            if status == "sent":
+                app.applied_at = datetime.now(timezone.utc)
+            await session.commit()
+
+
 # ── 列表与统计 ──────────────────────────────────
 
 @router.get("")

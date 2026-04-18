@@ -7,7 +7,7 @@ import { applications as appsApi } from '@/lib/api'
 import {
   ChevronLeft, ChevronRight, Clock, CheckCircle, XCircle, Loader2,
   Brain, MessageSquare, Pause, Play, ChevronDown, ChevronUp,
-  Send, Package
+  Send, Package, RotateCcw
 } from 'lucide-react'
 
 interface ApplicationItem {
@@ -114,6 +114,13 @@ export default function ApplicationsPage() {
     } catch { /* ignore */ }
   }
 
+  const handleRetry = async (appId: number) => {
+    try {
+      await appsApi.retry(appId)
+      fetchData(page)
+    } catch { /* ignore */ }
+  }
+
   const statusBadge = (status: string) => {
     const map: Record<string, { cls: string; icon: React.ReactNode; label: string }> = {
       sent: { cls: 'bg-green-100 text-green-700', icon: <CheckCircle className="h-3 w-3 mr-1" />, label: '已发送' },
@@ -159,6 +166,11 @@ export default function ApplicationsPage() {
               {(app.status === 'pending' || app.status === 'sending') && (
                 <Button variant="ghost" size="icon" className="h-5 w-5 flex-shrink-0" onClick={() => handlePauseSingle(app.id)}>
                   <Pause className="h-3 w-3" />
+                </Button>
+              )}
+              {(app.status === 'recorded' || app.status === 'failed' || app.status === 'paused') && (
+                <Button variant="ghost" size="icon" className="h-5 w-5 flex-shrink-0 text-blue-600" onClick={() => handleRetry(app.id)} title="重新投递">
+                  <RotateCcw className="h-3 w-3" />
                 </Button>
               )}
             </div>
@@ -279,6 +291,11 @@ export default function ApplicationsPage() {
                       {(app.status === 'pending' || app.status === 'sending') && (
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handlePauseSingle(app.id)}>
                           <Pause className="h-3 w-3" />
+                        </Button>
+                      )}
+                      {(app.status === 'recorded' || app.status === 'failed' || app.status === 'paused') && (
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-blue-600" onClick={() => handleRetry(app.id)} title="重新投递">
+                          <RotateCcw className="h-3 w-3" />
                         </Button>
                       )}
                     </div>

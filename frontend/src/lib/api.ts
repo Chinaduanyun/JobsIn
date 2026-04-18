@@ -174,6 +174,8 @@ export const applications = {
   // 单个
   pause: (appId: number) =>
     request<{ message: string }>(`/applications/${appId}/pause`, { method: 'POST' }),
+  retry: (appId: number) =>
+    request<{ message: string }>(`/applications/${appId}/retry`, { method: 'POST' }),
 }
 
 // ===== Extension =====
