@@ -6,80 +6,143 @@ const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const pollDot = document.getElementById('pollDot');
 const pollText = document.getElementById('pollText');
+const pollRow = document.getElementById('pollRow');
 const toggleBtn = document.getElementById('toggleBtn');
+const showAssistantBtn = document.getElementById('showAssistantBtn');
+const resetAssistantBtn = document.getElementById('resetAssistantBtn');
 const modeAutoBtn = document.getElementById('modeAuto');
 const modeCompanionBtn = document.getElementById('modeCompanion');
+const modeGreetingBtn = document.getElementById('modeGreeting');
+const modeBadge = document.getElementById('modeBadge');
 const modeDesc = document.getElementById('modeDesc');
-const autoSection = document.getElementById('autoSection');
+const popupError = document.getElementById('popupError');
 
 let currentMode = 'auto';
 
 const MODE_DESCS = {
-  auto: '自动采集：后端下发任务，插件自动执行',
-  companion: '陪伴浏览：打开岗位详情页即自动收藏保存',
+  auto: '自动模式：用于承载后端任务执行视图，命令通道可单独开关。',
+  companion: '陪伴模式：浏览到岗位详情页后自动提取并保存。',
+  greeting: '沟通助手：在页面悬浮球中生成、编辑并复制沟通文案。',
 };
 
-function updateUI(status) {
-  if (status.connected) {
-    statusDot.className = 'status-dot dot-green';
-    statusText.textContent = '后端已连接';
-  } else {
-    statusDot.className = 'status-dot dot-red';
-    statusText.textContent = '后端未连接';
-  }
+const MODE_LABELS = {
+  auto: 'AUTO',
+  companion: '陪伴',
+  greeting: '沟通',
+};
 
-  // 更新模式
+function showError(message = '') {
+  if (!message) {
+    popupError.style.display = 'none';
+    popupError.textContent = '';
+    return;
+  }
+  popupError.textContent = message;
+  popupError.style.display = 'block';
+}
+
+function updateUI(status) {
   currentMode = status.mode || 'auto';
+
+  statusDot.className = `status-dot ${status.connected ? 'dot-green' : 'dot-red'}`;
+  statusText.textContent = status.connected ? '后端已连接' : '后端未连接';
+
+  modeBadge.textContent = MODE_LABELS[currentMode] || currentMode.toUpperCase();
+  modeDesc.textContent = MODE_DESCS[currentMode] || '';
+
   modeAutoBtn.classList.toggle('active', currentMode === 'auto');
   modeCompanionBtn.classList.toggle('active', currentMode === 'companion');
-  modeDesc.textContent = MODE_DESCS[currentMode];
-  modeDesc.className = currentMode === 'companion' ? 'mode-desc companion' : 'mode-desc';
+  modeGreetingBtn.classList.toggle('active', currentMode === 'greeting');
 
-  // 自动模式才显示轮询控制
-  autoSection.style.display = currentMode === 'auto' ? 'block' : 'none';
+  pollRow.style.display = 'flex';
+  toggleBtn.style.display = 'block';
 
   if (status.polling) {
     pollDot.className = 'status-dot dot-green';
-    pollText.textContent = '轮询: 运行中';
-    toggleBtn.textContent = '停止轮询';
-    toggleBtn.className = 'btn btn-red';
+    pollText.textContent = '命令通道: 运行中';
+    toggleBtn.textContent = '停止命令通道';
+    toggleBtn.className = 'btn danger';
   } else {
     pollDot.className = 'status-dot dot-yellow';
-    pollText.textContent = '轮询: 已停止';
-    toggleBtn.textContent = '开始轮询';
-    toggleBtn.className = 'btn btn-green';
+    pollText.textContent = '命令通道: 已停止';
+    toggleBtn.textContent = '开启命令通道';
+    toggleBtn.className = 'btn';
   }
 }
 
-// 获取状态
-function refreshStatus() {
-  chrome.runtime.sendMessage({ action: 'get_status' }, (response) => {
-    if (response) {
-      updateUI(response);
-    }
+function sendMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response);
+    });
   });
 }
 
-// 切换轮询
-toggleBtn.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'get_status' }, (status) => {
-    const action = status.polling ? 'stop_polling' : 'start_polling';
-    chrome.runtime.sendMessage({ action }, () => {
-      setTimeout(refreshStatus, 500);
-    });
-  });
-});
+async function refreshStatus() {
+  try {
+    const response = await sendMessage({ action: 'get_status' });
+    if (response) {
+      updateUI(response);
+      showError('');
+    }
+  } catch (err) {
+    showError(err.message || '状态读取失败');
+  }
+}
 
-// 模式切换
-function switchMode(mode) {
-  chrome.runtime.sendMessage({ action: 'set_mode', mode }, () => {
-    setTimeout(refreshStatus, 300);
-  });
+async function switchMode(mode) {
+  try {
+    showError('');
+    const response = await sendMessage({ action: 'set_mode', mode });
+    updateUI(response || { mode });
+  } catch (err) {
+    showError(err.message || '模式切换失败');
+  }
+}
+
+async function togglePolling() {
+  try {
+    showError('');
+    const status = await sendMessage({ action: 'get_status' });
+    const action = status.polling ? 'stop_polling' : 'start_polling';
+    const response = await sendMessage({ action });
+    updateUI(response || status);
+  } catch (err) {
+    showError(err.message || '轮询切换失败');
+  }
+}
+
+async function invokeAssistantAction(action, successMessage = '') {
+  try {
+    showError('');
+    const response = await sendMessage({ action });
+    if (!response?.ok) {
+      throw new Error(response?.error || '操作失败');
+    }
+    if (successMessage) {
+      showError(successMessage);
+      popupError.style.background = '#eff6ff';
+      popupError.style.borderColor = '#bfdbfe';
+      popupError.style.color = '#1e3a8a';
+    }
+  } catch (err) {
+    popupError.style.background = '#fff1f2';
+    popupError.style.borderColor = '#fecdd3';
+    popupError.style.color = '#be123c';
+    showError(err.message || '操作失败');
+  }
 }
 
 modeAutoBtn.addEventListener('click', () => switchMode('auto'));
 modeCompanionBtn.addEventListener('click', () => switchMode('companion'));
+modeGreetingBtn.addEventListener('click', () => switchMode('greeting'));
+toggleBtn.addEventListener('click', togglePolling);
+showAssistantBtn.addEventListener('click', () => invokeAssistantAction('show_page_assistant', '页面助手已恢复，请回到 Boss 页面查看。'));
+resetAssistantBtn.addEventListener('click', () => invokeAssistantAction('reset_assistant_position', '悬浮球位置已重置。'));
 
-// 初始化
 refreshStatus();
 setInterval(refreshStatus, 2000);

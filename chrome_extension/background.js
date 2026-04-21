@@ -9,17 +9,49 @@
  * 5. 把结果 POST 回后端
  */
 
-const API_BASE = 'http://localhost:27788';
+const API_BASES = ['http://localhost:27788', 'http://127.0.0.1:27788'];
 const POLL_INTERVAL = 1500; // ms
 let isPolling = false;
 let connected = false;
 let tabId = null; // 采集用的标签页
+let activeApiBase = API_BASES[0];
+
+function getApiBaseCandidates() {
+  return [activeApiBase, ...API_BASES.filter(base => base !== activeApiBase)];
+}
+
+async function apiFetch(path, options = {}) {
+  let lastError = null;
+
+  for (const base of getApiBaseCandidates()) {
+    try {
+      const response = await fetch(`${base}${path}`, options);
+      activeApiBase = base;
+      return response;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error(`请求失败: ${path}`);
+}
 
 // ── 模式管理 ──────────────────────────────────
 // 'auto' = 自动模式（轮询后端命令）
 // 'companion' = 陪伴模式（监听用户浏览，自动保存岗位）
+// 'greeting' = 沟通助手模式（仅页面内助手工作）
+const VALID_MODES = new Set(['auto', 'companion', 'greeting']);
+const POLLING_STORAGE_KEY = 'pollingEnabled';
 let currentMode = 'auto';
 const savedUrls = new Set(); // 陪伴模式已保存的 URL（避免重复保存）
+
+function normalizeMode(mode) {
+  return VALID_MODES.has(mode) ? mode : 'auto';
+}
+
+function getStatus() {
+  return { connected, polling: isPolling, tabId, mode: currentMode };
+}
 
 // ── 轮询后端命令 ──────────────────────────────
 
@@ -27,7 +59,7 @@ async function pollCommand() {
   if (!isPolling) return;
 
   try {
-    const resp = await fetch(`${API_BASE}/api/extension/command`, {
+    const resp = await apiFetch('/api/extension/command', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -106,7 +138,7 @@ async function executeCommand(cmd) {
 
   // 报告结果
   try {
-    await fetch(`${API_BASE}/api/extension/result`, {
+    await apiFetch('/api/extension/result', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ command_id: id, ...result }),
@@ -367,12 +399,14 @@ function waitForNavigation(tid, urlContains, timeoutMs = 10000) {
 function startPolling() {
   if (isPolling) return;
   isPolling = true;
+  chrome.storage.local.set({ [POLLING_STORAGE_KEY]: true });
   console.log('[FindJobs] 开始轮询后端命令');
   pollCommand();
 }
 
 function stopPolling() {
   isPolling = false;
+  chrome.storage.local.set({ [POLLING_STORAGE_KEY]: false });
   console.log('[FindJobs] 停止轮询');
 }
 
@@ -407,7 +441,7 @@ async function onCompanionTabUpdated(tid, changeInfo, tab) {
     }
 
     // POST 到后端保存
-    const resp = await fetch(`${API_BASE}/api/extension/companion-save`, {
+    const resp = await apiFetch('/api/extension/companion-save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(response.data),
@@ -446,48 +480,80 @@ chrome.tabs.onUpdated.addListener(onCompanionTabUpdated);
 // ── 模式切换 ──────────────────────────────────
 
 function setMode(mode) {
-  currentMode = mode;
-  chrome.storage.local.set({ mode });
-  console.log('[FindJobs] 模式切换:', mode);
-
-  if (mode === 'auto') {
-    startPolling();
-  } else {
-    stopPolling();
-  }
+  currentMode = normalizeMode(mode);
+  chrome.storage.local.set({ mode: currentMode });
+  console.log('[FindJobs] 模式切换:', currentMode);
 }
 
 // ── 消息处理 (来自 popup) ────────────────────
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'get_status') {
-    sendResponse({ connected, polling: isPolling, tabId, mode: currentMode });
+    sendResponse(getStatus());
     return true;
   }
   if (message.action === 'start_polling') {
     startPolling();
-    sendResponse({ ok: true });
+    sendResponse({ ok: true, ...getStatus() });
     return true;
   }
   if (message.action === 'stop_polling') {
     stopPolling();
-    sendResponse({ ok: true });
+    sendResponse({ ok: true, ...getStatus() });
     return true;
   }
   if (message.action === 'set_mode') {
     setMode(message.mode);
-    sendResponse({ ok: true, mode: currentMode });
+    sendResponse({ ok: true, ...getStatus() });
+    return true;
+  }
+  if (message.action === 'show_page_assistant') {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tab = tabs[0];
+      if (!tab?.id) {
+        sendResponse({ ok: false, error: '未找到当前标签页' });
+        return;
+      }
+
+      try {
+        await sendToContent(tab.id, { action: 'show_assistant' }, 5000);
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message || '页面助手显示失败' });
+      }
+    });
+    return true;
+  }
+  if (message.action === 'reset_assistant_position') {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tab = tabs[0];
+      if (!tab?.id) {
+        sendResponse({ ok: false, error: '未找到当前标签页' });
+        return;
+      }
+
+      try {
+        await sendToContent(tab.id, { action: 'reset_assistant_position' }, 5000);
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message || '悬浮球位置重置失败' });
+      }
+    });
     return true;
   }
 });
 
 // ── 初始化：恢复上次保存的模式 ─────────────────
 
-chrome.storage.local.get(['mode'], (result) => {
-  currentMode = result.mode || 'auto';
+chrome.storage.local.get(['mode', POLLING_STORAGE_KEY], (result) => {
+  currentMode = normalizeMode(result.mode);
   console.log('[FindJobs] 初始模式:', currentMode);
   updateConnectionIcon(); // 初始灰色
-  if (currentMode === 'auto') {
-    startPolling();
+
+  if (result[POLLING_STORAGE_KEY] === false) {
+    stopPolling();
+    return;
   }
+
+  startPolling();
 });

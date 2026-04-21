@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import logging
-
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.database import get_session
-from app.models import Job
+from app.models import Job, JobAnalysis
+from app.services import ai_service
 from app.services.extension_bridge import extension_bridge
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class ResultReport(BaseModel):
 
 class CompanionSaveRequest(BaseModel):
     """陪伴模式：保存单个岗位"""
+
     title: str
     company: str = ""
     salary: str = ""
@@ -41,6 +43,76 @@ class CompanionSaveRequest(BaseModel):
     company_size: str = ""
     company_industry: str = ""
     tags: str = ""
+
+
+JOB_FIELD_NAMES = (
+    "title",
+    "company",
+    "salary",
+    "city",
+    "experience",
+    "education",
+    "description",
+    "url",
+    "hr_name",
+    "hr_title",
+    "hr_active",
+    "company_size",
+    "company_industry",
+    "tags",
+)
+
+
+def _apply_job_fields(job: Job, data: CompanionSaveRequest) -> bool:
+    changed = False
+    for field in JOB_FIELD_NAMES:
+        new_value = getattr(data, field, "")
+        if not new_value:
+            continue
+        if getattr(job, field) != new_value:
+            setattr(job, field, new_value)
+            changed = True
+    return changed
+
+
+async def _find_job_by_url(session: AsyncSession, url: str) -> Optional[Job]:
+    if not url:
+        return None
+    return (
+        await session.execute(select(Job).where(Job.url == url))
+    ).scalar_one_or_none()
+
+
+async def _get_latest_analysis(session: AsyncSession, job_id: int) -> Optional[JobAnalysis]:
+    return (
+        await session.execute(
+            select(JobAnalysis)
+            .where(JobAnalysis.job_id == job_id)
+            .order_by(JobAnalysis.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _get_or_create_job_from_page(
+    data: CompanionSaveRequest,
+    session: AsyncSession,
+) -> tuple[Job, bool]:
+    existing = await _find_job_by_url(session, data.url)
+    if existing:
+        if _apply_job_fields(existing, data):
+            session.add(existing)
+            await session.commit()
+            await session.refresh(existing)
+        return existing, False
+
+    job = Job(platform="boss", task_id=None)
+    _apply_job_fields(job, data)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    logger.info("[Extension] 保存岗位并生成文案: %s @ %s (id=%d)", data.title, data.company, job.id)
+    return job, True
 
 
 @router.get("/command")
@@ -77,11 +149,8 @@ async def companion_save(data: CompanionSaveRequest, session: AsyncSession = Dep
     if not data.title:
         return {"saved": False, "reason": "缺少岗位标题"}
 
-    # URL 去重
     if data.url:
-        existing = (await session.execute(
-            select(Job).where(Job.url == data.url)
-        )).scalar_one_or_none()
+        existing = await _find_job_by_url(session, data.url)
         if existing:
             return {"saved": False, "reason": "duplicate", "job_id": existing.id}
 
@@ -108,3 +177,40 @@ async def companion_save(data: CompanionSaveRequest, session: AsyncSession = Dep
     await session.refresh(job)
     logger.info("[Companion] 保存岗位: %s @ %s (id=%d)", data.title, data.company, job.id)
     return {"saved": True, "job_id": job.id}
+
+
+@router.post("/generate-greeting")
+async def generate_greeting_from_page(
+    data: CompanionSaveRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """扩展页面内：根据当前详情页直接生成沟通文案"""
+    if not data.title:
+        raise HTTPException(status_code=400, detail="缺少岗位标题")
+    if not data.url:
+        raise HTTPException(status_code=400, detail="缺少岗位链接")
+    if not data.description:
+        raise HTTPException(status_code=400, detail="未提取到岗位描述，请等待页面加载完成后重试")
+
+    try:
+        job, job_created = await _get_or_create_job_from_page(data, session)
+        analysis_created = False
+
+        analysis = await _get_latest_analysis(session, job.id)
+        if not analysis:
+            await ai_service.analyze_job(job.id)
+            analysis_created = True
+
+        greeting = await ai_service.generate_greeting(job.id)
+        return {
+            "job_id": job.id,
+            "greeting_text": greeting,
+            "job_created": job_created,
+            "analysis_created": analysis_created,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"扩展生成沟通文案失败: {e}")
