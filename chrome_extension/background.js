@@ -11,10 +11,13 @@
 
 const API_BASES = ['http://localhost:27788', 'http://127.0.0.1:27788'];
 const POLL_INTERVAL = 1500; // ms
+const REQUEST_TIMEOUT = 12000;
 let isPolling = false;
 let connected = false;
 let tabId = null; // 采集用的标签页
 let activeApiBase = API_BASES[0];
+let pollingTimer = null;
+let lastBackendSeenAt = 0;
 
 function getApiBaseCandidates() {
   return [activeApiBase, ...API_BASES.filter(base => base !== activeApiBase)];
@@ -24,11 +27,20 @@ async function apiFetch(path, options = {}) {
   let lastError = null;
 
   for (const base of getApiBaseCandidates()) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
     try {
-      const response = await fetch(`${base}${path}`, options);
+      const response = await fetch(`${base}${path}`, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       activeApiBase = base;
+      lastBackendSeenAt = Date.now();
       return response;
     } catch (err) {
+      clearTimeout(timeoutId);
       lastError = err;
     }
   }
@@ -50,7 +62,14 @@ function normalizeMode(mode) {
 }
 
 function getStatus() {
-  return { connected, polling: isPolling, tabId, mode: currentMode };
+  return {
+    connected,
+    polling: isPolling,
+    tabId,
+    mode: currentMode,
+    activeApiBase,
+    lastBackendSeenAt,
+  };
 }
 
 // ── 轮询后端命令 ──────────────────────────────
@@ -93,9 +112,12 @@ async function pollCommand() {
 }
 
 function scheduleNextPoll() {
-  if (isPolling) {
-    setTimeout(pollCommand, POLL_INTERVAL);
-  }
+  if (!isPolling) return;
+  if (pollingTimer) clearTimeout(pollingTimer);
+  pollingTimer = setTimeout(() => {
+    pollingTimer = null;
+    pollCommand();
+  }, POLL_INTERVAL);
 }
 
 // ── 连接状态图标更新 ─────────────────────────
@@ -406,6 +428,10 @@ function startPolling() {
 
 function stopPolling() {
   isPolling = false;
+  if (pollingTimer) {
+    clearTimeout(pollingTimer);
+    pollingTimer = null;
+  }
   chrome.storage.local.set({ [POLLING_STORAGE_KEY]: false });
   console.log('[FindJobs] 停止轮询');
 }

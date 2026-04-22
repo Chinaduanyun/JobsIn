@@ -45,7 +45,9 @@ function updateUI(status) {
   currentMode = status.mode || 'auto';
 
   statusDot.className = `status-dot ${status.connected ? 'dot-green' : 'dot-red'}`;
-  statusText.textContent = status.connected ? '后端已连接' : '后端未连接';
+  statusText.textContent = status.connected
+    ? `后端已连接 (${status.activeApiBase || 'unknown'})`
+    : '后端未连接';
 
   modeBadge.textContent = MODE_LABELS[currentMode] || currentMode.toUpperCase();
   modeDesc.textContent = MODE_DESCS[currentMode] || '';

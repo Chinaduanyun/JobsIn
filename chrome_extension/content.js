@@ -771,6 +771,7 @@ function renderAutoView() {
     <div class="fj-section">
       <p class="fj-section-title">运行状态</p>
       <div class="fj-row"><span class="fj-hint">后端连接</span><span class="fj-pill">${connected ? '已连接' : '未连接'}</span></div>
+      <div class="fj-row"><span class="fj-hint">连接地址</span><span class="fj-pill">${escapeHtml(assistantState.modeStatus.activeApiBase || '未知')}</span></div>
       <div class="fj-row"><span class="fj-hint">命令通道</span><span class="fj-pill">${polling ? '运行中' : '已停止'}</span></div>
       <p class="fj-hint">自动模式用于承载后端下发的采集/投递任务；命令通道可独立开启或停止。</p>
       <div class="fj-actions">

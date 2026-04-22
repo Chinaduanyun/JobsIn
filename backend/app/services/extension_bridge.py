@@ -19,6 +19,9 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
+EXTENSION_LONG_POLL_TIMEOUT = 5.0
+EXTENSION_CONNECTED_GRACE = 12.0
+
 
 class ExtensionBridge:
     """Chrome Extension ↔ Backend 通信桥接"""
@@ -32,8 +35,8 @@ class ExtensionBridge:
 
     @property
     def connected(self) -> bool:
-        """扩展是否在线（5秒内有轮询）"""
-        return time.time() - self._last_poll < 5
+        """扩展是否在线（最近一段时间内有轮询或结果回传）"""
+        return time.time() - self._last_poll < EXTENSION_CONNECTED_GRACE
 
     @property
     def security_check(self) -> bool:
@@ -89,13 +92,14 @@ class ExtensionBridge:
 
         # Long-poll: 等待最多 5 秒
         try:
-            cmd = await asyncio.wait_for(self._command_queue.get(), timeout=5.0)
+            cmd = await asyncio.wait_for(self._command_queue.get(), timeout=EXTENSION_LONG_POLL_TIMEOUT)
             return cmd
         except asyncio.TimeoutError:
             return None
 
     def report_result(self, command_id: str, result: dict) -> bool:
         """扩展调用：报告命令执行结果。"""
+        self._last_poll = time.time()
         future = self._result_futures.pop(command_id, None)
         if future and not future.done():
             future.set_result(result)
