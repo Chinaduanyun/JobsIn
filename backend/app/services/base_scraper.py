@@ -94,12 +94,33 @@ class BaseScraper(ABC):
                     logger.info("[%s] 任务 %d: 第 %d 页无结果，停止", self.PLATFORM, task_id, page_num)
                     break
 
-                for i, job_data in enumerate(jobs):
+                existing_urls = await self._find_existing_job_urls(
+                    [job.get("url", "") for job in jobs]
+                )
+                pending_jobs = []
+                page_seen_urls = set()
+                duplicate_before_detail = 0
+
+                for job_data in jobs:
+                    url = job_data.get("url", "")
+                    if url:
+                        if url in existing_urls or url in page_seen_urls:
+                            duplicate_before_detail += 1
+                            logger.debug("[%s] 列表页跳过重复岗位: %s", self.PLATFORM, url)
+                            continue
+                        page_seen_urls.add(url)
+                    pending_jobs.append(job_data)
+
+                if duplicate_before_detail:
+                    logger.info("[%s] 任务 %d: 第 %d 页跳过 %d 个重复岗位，待抓详情 %d 个",
+                                self.PLATFORM, task_id, page_num, duplicate_before_detail, len(pending_jobs))
+
+                for i, job_data in enumerate(pending_jobs):
                     if not self._running_tasks.get(task_id, False):
                         break
                     try:
                         logger.debug("[%s] 抓取详情 %d/%d: %s",
-                                     self.PLATFORM, i + 1, len(jobs), job_data.get("url", ""))
+                                     self.PLATFORM, i + 1, len(pending_jobs), job_data.get("url", ""))
                         detail = await self.fetch_detail(job_data.get("url", ""))
                         # 如果列表页薪资有乱码（包含私用区字符或问号），用详情页的
                         list_salary = job_data.get("salary", "")
@@ -174,6 +195,17 @@ class BaseScraper(ABC):
         ...
 
     # ── 通用私有方法 ──────────────────────────────────────────
+
+    async def _find_existing_job_urls(self, urls: list[str]) -> set[str]:
+        normalized_urls = {url for url in urls if url}
+        if not normalized_urls:
+            return set()
+
+        async with async_session_factory() as session:
+            rows = await session.execute(
+                select(Job.url).where(Job.url.in_(normalized_urls))
+            )
+            return {url for url in rows.scalars().all() if url}
 
     async def _save_job(self, data: dict, task_id: int) -> bool:
         """保存岗位到数据库，按 URL 去重"""
