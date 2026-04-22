@@ -93,8 +93,10 @@ class BossScraper(BaseScraper):
                 logger.warning("[Boss] 第 %d 页未提取到岗位: %s", page, data.get("message", ""))
             return []
 
-        logger.info("[Boss] 第 %d 页提取到 %d 个岗位 (卡片总数=%d)",
-                    page, len(jobs_raw), data.get("total_cards", 0))
+        logger.info("[Boss] 第 %d 页提取到 %d 个岗位 (初始=%d, 最终=%d, 卡片总数=%d, 已滚动=%s, 找到滚动容器=%s)",
+                    page, len(jobs_raw), data.get("initial_count", len(jobs_raw)),
+                    data.get("final_count", len(jobs_raw)), data.get("total_cards", 0),
+                    data.get("scrolled", False), data.get("scroller_found", False))
 
         result_list = []
         for idx, j in enumerate(jobs_raw):

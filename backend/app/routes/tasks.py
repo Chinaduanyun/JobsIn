@@ -24,7 +24,7 @@ class TaskCreate(BaseModel):
     city: str = "杭州"
     salary: str = ""
     max_pages: int = 5
-    target_new_jobs: int = 0
+    target_new_jobs: int = 20
     stop_after_stale_pages: int = 2
     start_page: Optional[int] = None
 
@@ -82,6 +82,18 @@ async def start_task(task_id: int, session: AsyncSession = Depends(get_session))
     if task.status == "running":
         raise HTTPException(status_code=400, detail="任务已在运行中")
 
+    running_task = (
+        await session.execute(
+            select(CollectionTask)
+            .where(CollectionTask.platform == task.platform)
+            .where(CollectionTask.status == "running")
+            .where(CollectionTask.id != task_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if running_task:
+        raise HTTPException(status_code=400, detail=f"已有运行中的 {task.platform} 任务（#{running_task.id}），请先暂停或停止它")
+
     if not extension_bridge.connected:
         raise HTTPException(status_code=400, detail="Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
 
@@ -126,6 +138,18 @@ async def resume_task(task_id: int, session: AsyncSession = Depends(get_session)
         raise HTTPException(status_code=404, detail="任务不存在")
     if task.status != "paused":
         raise HTTPException(status_code=400, detail="只有已暂停的任务可以恢复")
+
+    running_task = (
+        await session.execute(
+            select(CollectionTask)
+            .where(CollectionTask.platform == task.platform)
+            .where(CollectionTask.status == "running")
+            .where(CollectionTask.id != task_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if running_task:
+        raise HTTPException(status_code=400, detail=f"已有运行中的 {task.platform} 任务（#{running_task.id}），请先暂停或停止它")
 
     if not extension_bridge.connected:
         raise HTTPException(status_code=400, detail="Chrome 扩展未连接")

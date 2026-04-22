@@ -37,7 +37,7 @@ export default function TasksPage() {
     city: '杭州',
     salary: '',
     max_pages: 5,
-    target_new_jobs: 30,
+    target_new_jobs: 20,
     stop_after_stale_pages: 2,
     start_page: '',
   })
@@ -106,7 +106,7 @@ export default function TasksPage() {
         city: '杭州',
         salary: '',
         max_pages: 5,
-        target_new_jobs: 30,
+        target_new_jobs: 20,
         stop_after_stale_pages: 2,
         start_page: '',
       })
@@ -422,7 +422,7 @@ export default function TasksPage() {
                   value={form.target_new_jobs}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, target_new_jobs: parseInt(e.target.value) || 0 })}
                 />
-                <p className="text-xs text-muted-foreground mt-1">达到这个数量后会提前停止；填 0 表示只按页数控制。</p>
+                <p className="text-xs text-muted-foreground mt-1">默认收集 20 个新岗位；达到后会提前停止，填 0 才表示只按页数控制。</p>
               </div>
               <div>
                 <Label>连续空转停止页数</Label>

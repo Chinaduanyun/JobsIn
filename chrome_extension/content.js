@@ -1065,28 +1065,42 @@ function getSearchListScroller() {
     document.querySelector('.job-list-box'),
     document.querySelector('.job-list'),
     document.querySelector('.search-job-list'),
+    document.querySelector('.job-card-list'),
+    document.querySelector('.job-list-wrapper'),
     document.querySelector('.left-side'),
     document.querySelector('.left-list'),
   ].filter(Boolean);
 
-  for (const el of candidates) {
-    if (el.scrollHeight - el.clientHeight > 120) {
-      return el;
-    }
-  }
-
   const cards = getJobCards();
-  if (!cards.length) return null;
-
-  let node = cards[0].parentElement;
-  while (node && node !== document.body) {
-    if (node.scrollHeight - node.clientHeight > 120) {
-      return node;
+  if (cards.length) {
+    let node = cards[0].parentElement;
+    while (node && node !== document.body) {
+      candidates.push(node);
+      node = node.parentElement;
     }
-    node = node.parentElement;
   }
 
-  return null;
+  const scored = candidates
+    .filter((el, index, arr) => el && arr.indexOf(el) === index)
+    .map((el) => ({
+      el,
+      scrollableDelta: Math.max(0, el.scrollHeight - el.clientHeight),
+      cardCount: el.querySelectorAll('.job-card-wrapper, .job-card-box').length,
+      overflowY: getComputedStyle(el).overflowY,
+    }))
+    .filter(item => item.scrollableDelta > 40 || item.cardCount >= 8)
+    .sort((a, b) => {
+      if (b.cardCount !== a.cardCount) return b.cardCount - a.cardCount;
+      return b.scrollableDelta - a.scrollableDelta;
+    });
+
+  for (const item of scored) {
+    if (item.scrollableDelta > 40) {
+      return item.el;
+    }
+  }
+
+  return scored[0]?.el || null;
 }
 
 function readJobsSnapshot() {
@@ -1198,31 +1212,43 @@ async function extractJobs() {
   let stableRounds = 0;
   let lastCount = initialSnapshot.jobs.length;
   let lastHeight = scroller ? scroller.scrollHeight : 0;
+  let lastTop = scroller ? scroller.scrollTop : 0;
 
   if (scroller) {
-    for (let i = 0; i < 8; i++) {
-      scroller.scrollTop = scroller.scrollHeight;
-      scrolled = true;
-      await sleep(700);
+    for (let i = 0; i < 14; i++) {
+      const nextTop = Math.min(scroller.scrollTop + Math.max(400, Math.floor(scroller.clientHeight * 0.9)), scroller.scrollHeight);
+      scroller.scrollTo({ top: nextTop, behavior: 'instant' });
+      scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+      scrolled = scrolled || nextTop !== lastTop;
+      await sleep(900);
 
       const snapshot = readJobsSnapshot();
       const currentCount = snapshot.jobs.length;
       const currentHeight = scroller.scrollHeight;
+      const currentTop = scroller.scrollTop;
+      const moved = currentTop > lastTop + 20;
+      const grew = currentCount > lastCount || currentHeight > lastHeight;
 
-      if (currentCount > lastCount || currentHeight > lastHeight) {
+      if (grew || moved) {
         stableRounds = 0;
-        lastCount = currentCount;
-        lastHeight = currentHeight;
-        continue;
+      } else {
+        stableRounds += 1;
       }
 
-      stableRounds += 1;
-      if (stableRounds >= 2) {
+      lastCount = Math.max(lastCount, currentCount);
+      lastHeight = Math.max(lastHeight, currentHeight);
+      lastTop = currentTop;
+
+      const atBottom = currentTop + scroller.clientHeight >= currentHeight - 24;
+      if (atBottom && stableRounds >= 2) {
         break;
       }
     }
+
+    scroller.scrollTo({ top: 0, behavior: 'instant' });
   }
 
+  await sleep(200);
   const finalSnapshot = readJobsSnapshot();
   const { deduped, duplicateCount } = dedupeJobs(finalSnapshot.jobs || []);
 
@@ -1235,6 +1261,7 @@ async function extractJobs() {
     final_count: finalSnapshot.jobs.length,
     duplicate_count: duplicateCount,
     scrolled,
+    scroller_found: Boolean(scroller),
   };
 }
 
