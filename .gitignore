@@ -6,6 +6,7 @@ node_modules/
 frontend/dist/
 .vite/
 *.db
+.DS_Store
 
 # 参考仓库（仅本地分析用）
 references/
