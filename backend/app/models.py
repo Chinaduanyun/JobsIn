@@ -95,13 +95,20 @@ class CollectionTask(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     platform: str = Field(default="boss", index=True)  # boss / zhaopin / job51 / liepin
+    mode: str = Field(default="manual", index=True)  # manual / smart
+    config_key: str = Field(default="", index=True)
     keyword: str
     city: str = "全国"
     city_code: str = "100010000"
     salary: str = ""
-    status: str = "pending"  # pending / running / completed / failed / cancelled
+    status: str = "pending"  # pending / running / paused / completed / failed / cancelled
     total_collected: int = 0
     start_page: int = 1
+    resume_from_page: int = 1
+    refresh_pages: int = 3
+    pages_scanned: int = 0
+    current_phase: str = ""  # refresh / resume / done
+    display_last_page: int = 0
     last_page_reached: int = 0
     max_pages: int = 5
     target_new_jobs: int = 0

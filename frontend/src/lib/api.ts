@@ -45,7 +45,7 @@ export const jobs = {
 // ===== Tasks =====
 export const tasks = {
   list: () => request<import('@/types').CollectionTask[]>('/tasks'),
-  create: (data: { platform?: string; keyword: string; city: string; salary?: string; max_pages?: number; target_new_jobs?: number; stop_after_stale_pages?: number; start_page?: number }) =>
+  create: (data: { platform?: string; mode?: string; keyword: string; city: string; salary?: string; max_pages?: number; target_new_jobs?: number; stop_after_stale_pages?: number; start_page?: number; refresh_pages?: number }) =>
     request<import('@/types').CollectionTask>('/tasks', {
       method: 'POST',
       body: JSON.stringify(data),

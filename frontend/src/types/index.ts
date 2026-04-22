@@ -54,6 +54,8 @@ export interface Resume {
 export interface CollectionTask {
   id: number
   platform: string
+  mode: string
+  config_key: string
   keyword: string
   city: string
   city_code: string
@@ -61,6 +63,11 @@ export interface CollectionTask {
   status: string
   total_collected: number
   start_page: number
+  resume_from_page: number
+  refresh_pages: number
+  pages_scanned: number
+  current_phase: string
+  display_last_page: number
   last_page_reached: number
   max_pages: number
   target_new_jobs: number
