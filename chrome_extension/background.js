@@ -257,7 +257,7 @@ async function handleExtractJobs(cmd) {
   await new Promise(r => setTimeout(r, 2000));
 
   try {
-    const response = await sendToContent(tid, { action: 'extract_jobs' });
+    const response = await sendToContent(tid, { action: 'extract_jobs' }, 40000);
     return { success: true, data: response };
   } catch (err) {
     return { success: false, error: `提取失败: ${err.message}` };

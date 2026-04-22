@@ -66,8 +66,7 @@ let persistAssistantStateTimer = null;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'extract_jobs') {
-    const result = extractJobs();
-    sendResponse(result);
+    extractJobs().then(sendResponse);
     return true;
   }
 
@@ -1055,18 +1054,53 @@ function decodeFontEncryptedText(element) {
 
 // ── 提取岗位列表 ─────────────────────────────
 
-function extractJobs() {
-  const cards = document.querySelectorAll('.job-card-wrapper, .job-card-box');
+function getJobCards() {
+  return Array.from(document.querySelectorAll('.job-card-wrapper, .job-card-box'));
+}
+
+function getSearchListScroller() {
+  const candidates = [
+    document.querySelector('.job-list-container'),
+    document.querySelector('.search-job-result'),
+    document.querySelector('.job-list-box'),
+    document.querySelector('.job-list'),
+    document.querySelector('.search-job-list'),
+    document.querySelector('.left-side'),
+    document.querySelector('.left-list'),
+  ].filter(Boolean);
+
+  for (const el of candidates) {
+    if (el.scrollHeight - el.clientHeight > 120) {
+      return el;
+    }
+  }
+
+  const cards = getJobCards();
+  if (!cards.length) return null;
+
+  let node = cards[0].parentElement;
+  while (node && node !== document.body) {
+    if (node.scrollHeight - node.clientHeight > 120) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+
+  return null;
+}
+
+function readJobsSnapshot() {
+  const cards = getJobCards();
 
   if (!cards.length) {
     const empty = document.querySelector('.job-empty-wrapper, .empty-tips');
     if (empty) {
-      return { jobs: [], empty: true, message: '无搜索结果' };
+      return { jobs: [], empty: true, message: '无搜索结果', total_cards: 0 };
     }
-    return { jobs: [], empty: false, message: '未找到岗位卡片元素' };
+    return { jobs: [], empty: false, message: '未找到岗位卡片元素', total_cards: 0 };
   }
 
-  const jobs = Array.from(cards).map(card => {
+  const jobs = cards.map(card => {
     const titleLinkEl = card.querySelector('.job-name a, a.job-name, .job-title a');
     const titleSpanEl = card.querySelector('.job-name span:first-child, .job-name-text');
     const titleEl = titleLinkEl || titleSpanEl || card.querySelector('.job-name, .job-title');
@@ -1125,13 +1159,82 @@ function extractJobs() {
       url,
       tags: skills.join(','),
     };
-  });
+  }).filter(j => j.title);
 
   return {
-    jobs: jobs.filter(j => j.title),
+    jobs,
     empty: false,
     page_url: window.location.href,
     total_cards: cards.length,
+  };
+}
+
+function dedupeJobs(jobs) {
+  const seen = new Set();
+  const deduped = [];
+  let duplicateCount = 0;
+
+  for (const job of jobs) {
+    const key = job.url || `${job.title}__${job.company}__${job.city}`;
+    if (seen.has(key)) {
+      duplicateCount += 1;
+      continue;
+    }
+    seen.add(key);
+    deduped.push(job);
+  }
+
+  return { deduped, duplicateCount };
+}
+
+async function extractJobs() {
+  const initialSnapshot = readJobsSnapshot();
+  if (!initialSnapshot.jobs?.length) {
+    return initialSnapshot;
+  }
+
+  const scroller = getSearchListScroller();
+  let scrolled = false;
+  let stableRounds = 0;
+  let lastCount = initialSnapshot.jobs.length;
+  let lastHeight = scroller ? scroller.scrollHeight : 0;
+
+  if (scroller) {
+    for (let i = 0; i < 8; i++) {
+      scroller.scrollTop = scroller.scrollHeight;
+      scrolled = true;
+      await sleep(700);
+
+      const snapshot = readJobsSnapshot();
+      const currentCount = snapshot.jobs.length;
+      const currentHeight = scroller.scrollHeight;
+
+      if (currentCount > lastCount || currentHeight > lastHeight) {
+        stableRounds = 0;
+        lastCount = currentCount;
+        lastHeight = currentHeight;
+        continue;
+      }
+
+      stableRounds += 1;
+      if (stableRounds >= 2) {
+        break;
+      }
+    }
+  }
+
+  const finalSnapshot = readJobsSnapshot();
+  const { deduped, duplicateCount } = dedupeJobs(finalSnapshot.jobs || []);
+
+  return {
+    jobs: deduped,
+    empty: false,
+    page_url: window.location.href,
+    total_cards: finalSnapshot.total_cards || 0,
+    initial_count: initialSnapshot.jobs.length,
+    final_count: finalSnapshot.jobs.length,
+    duplicate_count: duplicateCount,
+    scrolled,
   };
 }
 
