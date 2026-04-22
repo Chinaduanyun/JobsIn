@@ -101,7 +101,11 @@ class CollectionTask(SQLModel, table=True):
     salary: str = ""
     status: str = "pending"  # pending / running / completed / failed / cancelled
     total_collected: int = 0
+    start_page: int = 1
+    last_page_reached: int = 0
     max_pages: int = 5
+    target_new_jobs: int = 0
+    stop_after_stale_pages: int = 2
     created_at: datetime = Field(default_factory=now_shanghai)
 
 

@@ -60,7 +60,11 @@ export interface CollectionTask {
   salary: string
   status: string
   total_collected: number
+  start_page: number
+  last_page_reached: number
   max_pages: number
+  target_new_jobs: number
+  stop_after_stale_pages: number
   created_at: string
 }
 

@@ -31,7 +31,16 @@ type SuggestedKeyword = { keyword: string; reason: string; city: string; status:
 export default function TasksPage() {
   const [taskList, setTaskList] = useState<CollectionTask[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ platform: 'boss', keyword: '', city: '杭州', salary: '', max_pages: 5 })
+  const [form, setForm] = useState({
+    platform: 'boss',
+    keyword: '',
+    city: '杭州',
+    salary: '',
+    max_pages: 5,
+    target_new_jobs: 30,
+    stop_after_stale_pages: 2,
+    start_page: '',
+  })
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus | null>(null)
   const [extConnected, setExtConnected] = useState(false)
@@ -86,8 +95,21 @@ export default function TasksPage() {
     if (!form.keyword.trim()) return
     setError('')
     try {
-      await tasksApi.create(form)
-      setForm({ platform: 'boss', keyword: '', city: '杭州', salary: '', max_pages: 5 })
+      const payload = {
+        ...form,
+        start_page: form.start_page === '' ? undefined : Number(form.start_page),
+      }
+      await tasksApi.create(payload)
+      setForm({
+        platform: 'boss',
+        keyword: '',
+        city: '杭州',
+        salary: '',
+        max_pages: 5,
+        target_new_jobs: 30,
+        stop_after_stale_pages: 2,
+        start_page: '',
+      })
       setShowForm(false)
       refresh()
     } catch (e: any) {
@@ -367,7 +389,19 @@ export default function TasksPage() {
                 />
               </div>
               <div>
-                <Label>最大页数</Label>
+                <Label>起始页码</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={999}
+                  placeholder="1"
+                  value={form.start_page}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, start_page: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground mt-1">留空默认从 1 开始；相同参数再次采集时，系统会自动续接到上次之后。</p>
+              </div>
+              <div>
+                <Label>最多扫描页数</Label>
                 <Input
                   type="number"
                   min={1}
@@ -376,7 +410,31 @@ export default function TasksPage() {
                   value={form.max_pages}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, max_pages: parseInt(e.target.value) || 5 })}
                 />
-                <p className="text-xs text-muted-foreground mt-1">每页约30个岗位</p>
+                <p className="text-xs text-muted-foreground mt-1">不是固定抓完这些页，而是最多扫描这么多页。</p>
+              </div>
+              <div>
+                <Label>目标新岗位数</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={500}
+                  placeholder="30"
+                  value={form.target_new_jobs}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, target_new_jobs: parseInt(e.target.value) || 0 })}
+                />
+                <p className="text-xs text-muted-foreground mt-1">达到这个数量后会提前停止；填 0 表示只按页数控制。</p>
+              </div>
+              <div>
+                <Label>连续空转停止页数</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  placeholder="2"
+                  value={form.stop_after_stale_pages}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, stop_after_stale_pages: parseInt(e.target.value) || 2 })}
+                />
+                <p className="text-xs text-muted-foreground mt-1">连续几页都没有新岗位时，提前结束这次采集。</p>
               </div>
             </div>
             <div className="flex gap-2 mt-4">
@@ -446,7 +504,11 @@ export default function TasksPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">
                       已采集 {task.total_collected} 个岗位
-                      {task.max_pages > 0 && ` · 最大 ${task.max_pages} 页`}
+                      {task.start_page > 0 && ` · 起始页 ${task.start_page}`}
+                      {task.last_page_reached > 0 && ` · 扫到第 ${task.last_page_reached} 页`}
+                      {task.max_pages > 0 && ` · 最多扫 ${task.max_pages} 页`}
+                      {task.target_new_jobs > 0 && ` · 目标 ${task.target_new_jobs} 个新岗位`}
+                      {task.stop_after_stale_pages > 0 && ` · 空转 ${task.stop_after_stale_pages} 页即停`}
                     </span>
                     <div className="flex gap-1">
                       {task.status === 'pending' && (

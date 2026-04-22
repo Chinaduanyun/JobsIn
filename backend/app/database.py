@@ -30,6 +30,10 @@ async def _migrate():
         ("jobs", "platform", "ALTER TABLE jobs ADD COLUMN platform TEXT DEFAULT 'boss'"),
         ("collection_tasks", "platform", "ALTER TABLE collection_tasks ADD COLUMN platform TEXT DEFAULT 'boss'"),
         ("applications", "batch_id", "ALTER TABLE applications ADD COLUMN batch_id INTEGER"),
+        ("collection_tasks", "start_page", "ALTER TABLE collection_tasks ADD COLUMN start_page INTEGER DEFAULT 1"),
+        ("collection_tasks", "last_page_reached", "ALTER TABLE collection_tasks ADD COLUMN last_page_reached INTEGER DEFAULT 0"),
+        ("collection_tasks", "target_new_jobs", "ALTER TABLE collection_tasks ADD COLUMN target_new_jobs INTEGER DEFAULT 0"),
+        ("collection_tasks", "stop_after_stale_pages", "ALTER TABLE collection_tasks ADD COLUMN stop_after_stale_pages INTEGER DEFAULT 2"),
     ]
     async with engine.begin() as conn:
         for table, column, sql in migrations:

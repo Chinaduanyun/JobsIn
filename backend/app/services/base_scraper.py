@@ -67,14 +67,20 @@ class BaseScraper(ABC):
                 task.status = "running"
                 await session.commit()
 
-            logger.info("[%s] ========== 任务 %d 开始 ==========", self.PLATFORM, task_id)
-            logger.info("[%s] 关键词=%s, 城市=%s(%s), 薪资=%s, 最大页数=%d",
-                        self.PLATFORM, task.keyword, task.city, task.city_code,
-                        task.salary or "(不限)", task.max_pages)
-
             city_code = self.resolve_city_code(task.city)
             collected = 0
             seen_urls_in_task: set[str] = set()
+            stale_pages = 0
+            scan_limit = max(task.max_pages or 1, 1)
+            start_page = max(task.start_page or 1, 1)
+            if task.last_page_reached and task.last_page_reached >= start_page:
+                start_page = task.last_page_reached + 1
+            end_page = start_page + scan_limit - 1
+
+            logger.info("[%s] ========== 任务 %d 开始 ==========", self.PLATFORM, task_id)
+            logger.info("[%s] 关键词=%s, 城市=%s(%s), 薪资=%s, 起始页=%d, 最多扫描页数=%d, 目标新岗位=%d, 连续空转停止页数=%d",
+                        self.PLATFORM, task.keyword, task.city, task.city_code,
+                        task.salary or "(不限)", start_page, scan_limit, task.target_new_jobs, task.stop_after_stale_pages)
 
             # 获取配置的延迟范围
             page_delay = await self._get_delay("scrape_page_delay", 3.0, 8.0)
@@ -83,17 +89,23 @@ class BaseScraper(ABC):
                         self.PLATFORM, page_delay[0], page_delay[1],
                         detail_delay[0], detail_delay[1])
 
-            for page_num in range(1, task.max_pages + 1):
+            for page_num in range(start_page, end_page + 1):
                 if not self._running_tasks.get(task_id, False):
                     logger.info("[%s] 任务 %d 被取消", self.PLATFORM, task_id)
                     break
 
-                logger.info("[%s] 任务 %d: ── 采集第 %d/%d 页 ──", self.PLATFORM, task_id, page_num, task.max_pages)
+                logger.info("[%s] 任务 %d: ── 扫描第 %d 页（本次第 %d/%d 页）──", self.PLATFORM, task_id, page_num, page_num - start_page + 1, scan_limit)
                 jobs = await self.scrape_page(task.keyword, city_code, task.salary, page_num)
 
                 if not jobs:
                     logger.info("[%s] 任务 %d: 第 %d 页无结果，停止", self.PLATFORM, task_id, page_num)
                     break
+
+                async with async_session_factory() as session:
+                    t = await session.get(CollectionTask, task_id)
+                    if t:
+                        t.last_page_reached = page_num
+                        await session.commit()
 
                 existing_urls = await self._find_existing_job_urls(
                     [job.get("url", "") for job in jobs]
@@ -141,6 +153,22 @@ class BaseScraper(ABC):
                         missing_url,
                     )
 
+                if pending_jobs:
+                    stale_pages = 0
+                else:
+                    stale_pages += 1
+                    logger.info(
+                        "[%s] 任务 %d: 第 %d 页没有新岗位，连续空转页数 %d/%d",
+                        self.PLATFORM,
+                        task_id,
+                        page_num,
+                        stale_pages,
+                        task.stop_after_stale_pages,
+                    )
+                    if task.stop_after_stale_pages > 0 and stale_pages >= task.stop_after_stale_pages:
+                        logger.info("[%s] 任务 %d: 连续空转页达到阈值，提前结束", self.PLATFORM, task_id)
+                        break
+
                 for i, job_data in enumerate(pending_jobs):
                     if not self._running_tasks.get(task_id, False):
                         break
@@ -178,7 +206,11 @@ class BaseScraper(ABC):
                 logger.info("[%s] 任务 %d: 第 %d 页完成，累计 %d 个岗位",
                             self.PLATFORM, task_id, page_num, collected)
 
-                if page_num < task.max_pages:
+                if task.target_new_jobs > 0 and collected >= task.target_new_jobs:
+                    logger.info("[%s] 任务 %d: 已达到目标新岗位数 %d，提前结束", self.PLATFORM, task_id, task.target_new_jobs)
+                    break
+
+                if page_num < end_page:
                     delay = random.uniform(*page_delay)
                     logger.info("[%s] 等待 %.1fs 后翻页...", self.PLATFORM, delay)
                     await asyncio.sleep(delay)
@@ -189,6 +221,8 @@ class BaseScraper(ABC):
                 if t and t.status == "running":
                     t.status = final_status
                     t.total_collected = collected
+                    if final_status == "completed":
+                        t.start_page = (t.last_page_reached or start_page) + 1
                     await session.commit()
             logger.info("[%s] ========== 任务 %d %s: 共采集 %d 个岗位 ==========",
                         self.PLATFORM, task_id, final_status, collected)

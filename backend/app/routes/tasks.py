@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from pydantic import BaseModel
@@ -22,6 +24,9 @@ class TaskCreate(BaseModel):
     city: str = "杭州"
     salary: str = ""
     max_pages: int = 5
+    target_new_jobs: int = 0
+    stop_after_stale_pages: int = 2
+    start_page: Optional[int] = None
 
 
 @router.get("")
@@ -35,6 +40,23 @@ async def list_tasks(session: AsyncSession = Depends(get_session)):
 async def create_task(data: TaskCreate, session: AsyncSession = Depends(get_session)):
     scraper = get_scraper(data.platform)
     city_code = scraper.resolve_city_code(data.city)
+
+    start_page = data.start_page or 1
+    if data.platform == "boss" and data.start_page is None:
+        latest_similar = (
+            await session.execute(
+                select(CollectionTask)
+                .where(CollectionTask.platform == data.platform)
+                .where(CollectionTask.keyword == data.keyword)
+                .where(CollectionTask.city == data.city)
+                .where(CollectionTask.salary == data.salary)
+                .order_by(CollectionTask.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if latest_similar and latest_similar.last_page_reached > 0:
+            start_page = latest_similar.last_page_reached + 1
+
     task = CollectionTask(
         platform=data.platform,
         keyword=data.keyword,
@@ -42,6 +64,9 @@ async def create_task(data: TaskCreate, session: AsyncSession = Depends(get_sess
         city_code=city_code,
         salary=data.salary,
         max_pages=data.max_pages,
+        target_new_jobs=data.target_new_jobs,
+        stop_after_stale_pages=data.stop_after_stale_pages,
+        start_page=start_page,
     )
     session.add(task)
     await session.commit()
