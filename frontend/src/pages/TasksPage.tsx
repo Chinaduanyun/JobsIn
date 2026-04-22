@@ -27,12 +27,25 @@ const platformColors: Record<string, string> = {
 
 type SortMode = 'time' | 'status'
 type SuggestedKeyword = { keyword: string; reason: string; city: string; status: 'pending' | 'approved' | 'rejected'; taskId?: number }
+type TaskForm = {
+  platform: string
+  mode: string
+  keyword: string
+  city: string
+  salary: string
+  max_pages: number
+  target_new_jobs: number
+  stop_after_stale_pages: number
+  start_page: string
+  refresh_pages: number
+}
 
 export default function TasksPage() {
   const [taskList, setTaskList] = useState<CollectionTask[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({
+  const defaultForm = (): TaskForm => ({
     platform: 'boss',
+    mode: 'smart',
     keyword: '',
     city: '杭州',
     salary: '',
@@ -40,7 +53,9 @@ export default function TasksPage() {
     target_new_jobs: 20,
     stop_after_stale_pages: 2,
     start_page: '',
+    refresh_pages: 3,
   })
+  const [form, setForm] = useState<TaskForm>(defaultForm)
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus | null>(null)
   const [extConnected, setExtConnected] = useState(false)
@@ -97,19 +112,10 @@ export default function TasksPage() {
     try {
       const payload = {
         ...form,
-        start_page: form.start_page === '' ? undefined : Number(form.start_page),
+        start_page: form.mode === 'manual' && form.start_page !== '' ? Number(form.start_page) : undefined,
       }
       await tasksApi.create(payload)
-      setForm({
-        platform: 'boss',
-        keyword: '',
-        city: '杭州',
-        salary: '',
-        max_pages: 5,
-        target_new_jobs: 20,
-        stop_after_stale_pages: 2,
-        start_page: '',
-      })
+      setForm(defaultForm())
       setShowForm(false)
       refresh()
     } catch (e: any) {
@@ -208,6 +214,28 @@ export default function TasksPage() {
 
   const browserReady = browserStatus?.logged_in && (browserStatus?.cookies_count ?? 0) > 0
   const getPlatformName = (key: string) => platforms.find(p => p.key === key)?.name || key
+  const getTaskGroupKey = (task: CollectionTask) => task.config_key || `${task.platform}::${task.keyword}::${task.city}::${task.salary}`
+  const getTaskSummary = (task: CollectionTask) => {
+    if (task.mode === 'smart' && task.platform === 'boss') {
+      const parts = [
+        `智能采集 · 本次扫描 ${task.pages_scanned || 0}/${task.max_pages || 0} 页`,
+        `先回看前 ${task.refresh_pages || 0} 页`,
+        `再从第 ${task.resume_from_page || 1} 页继续`,
+      ]
+      if (task.display_last_page > 0) parts.push(`本次最远扫到第 ${task.display_last_page} 页`)
+      if (task.target_new_jobs > 0) parts.push(`目标 ${task.target_new_jobs} 个新岗位`)
+      if (task.stop_after_stale_pages > 0) parts.push(`空转 ${task.stop_after_stale_pages} 页即停`)
+      return parts.join(' · ')
+    }
+
+    const parts = [`已采集 ${task.total_collected} 个岗位`]
+    if (task.start_page > 0) parts.push(`起始页 ${task.start_page}`)
+    if (task.last_page_reached > 0) parts.push(`扫到第 ${task.last_page_reached} 页`)
+    if (task.max_pages > 0) parts.push(`最多扫 ${task.max_pages} 页`)
+    if (task.target_new_jobs > 0) parts.push(`目标 ${task.target_new_jobs} 个新岗位`)
+    if (task.stop_after_stale_pages > 0) parts.push(`空转 ${task.stop_after_stale_pages} 页即停`)
+    return parts.join(' · ')
+  }
 
   // 排序
   const statusOrder: Record<string, number> = { running: 0, paused: 1, pending: 2, completed: 3, failed: 4, cancelled: 5 }
@@ -217,6 +245,17 @@ export default function TasksPage() {
     }
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   })
+
+  const groupedTasks = sortedTasks.reduce<Array<{ key: string; titleTask: CollectionTask; tasks: CollectionTask[] }>>((groups, task) => {
+    const key = task.mode === 'smart' && task.platform === 'boss' ? getTaskGroupKey(task) : `task-${task.id}`
+    const existing = groups.find(group => group.key === key)
+    if (existing) {
+      existing.tasks.push(task)
+      return groups
+    }
+    groups.push({ key, titleTask: task, tasks: [task] })
+    return groups
+  }, [])
 
   return (
     <div>
@@ -389,17 +428,44 @@ export default function TasksPage() {
                 />
               </div>
               <div>
-                <Label>起始页码</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={999}
-                  placeholder="1"
-                  value={form.start_page}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, start_page: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground mt-1">留空默认从 1 开始；相同参数再次采集时，系统会自动续接到上次之后。</p>
+                <Label>采集模式</Label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.mode}
+                  onChange={(e) => setForm({ ...form, mode: e.target.value })}
+                >
+                  <option value="smart">智能采集（推荐）</option>
+                  <option value="manual">手动采集（高级）</option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">智能采集会先回看首页，再从历史续采页继续。</p>
               </div>
+              {form.mode === 'manual' ? (
+                <div>
+                  <Label>起始页码</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={999}
+                    placeholder="1"
+                    value={form.start_page}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, start_page: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">手动模式会从指定页开始连续扫描。</p>
+                </div>
+              ) : (
+                <div>
+                  <Label>回看首页页数</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={10}
+                    placeholder="3"
+                    value={form.refresh_pages}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, refresh_pages: parseInt(e.target.value) || 0 })}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">智能采集会先回看这些首页页数，再从历史进度继续。</p>
+                </div>
+              )}
               <div>
                 <Label>最多扫描页数</Label>
                 <Input
@@ -469,82 +535,89 @@ export default function TasksPage() {
 
       {/* Task list */}
       <div className="space-y-3">
-        {sortedTasks.length === 0 ? (
+        {groupedTasks.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-muted-foreground">
               暂无采集任务
             </CardContent>
           </Card>
         ) : (
-          sortedTasks.map((task) => {
-            const st = statusMap[task.status] || statusMap.pending
+          groupedTasks.map((group) => {
+            const titleTask = group.titleTask
             return (
-              <Card key={task.id}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-xs mr-2 ${platformColors[task.platform] || 'bg-gray-100 text-gray-800'}`}>
-                        {getPlatformName(task.platform)}
-                      </span>
-                      {task.keyword}
-                      <span className="text-sm font-normal text-muted-foreground ml-2">
-                        {task.city}
-                        {task.salary && ` · ${task.salary}`}
-                      </span>
-                    </CardTitle>
-                    <Badge variant={st.variant}>
-                      {task.status === 'running' && (
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      )}
-                      {st.label}
-                    </Badge>
+              <div key={group.key} className="space-y-2">
+                {group.tasks.length > 1 && titleTask.mode === 'smart' && titleTask.platform === 'boss' && (
+                  <div className="px-1 text-sm text-muted-foreground">
+                    智能采集流 · {titleTask.keyword} · {titleTask.city}{titleTask.salary ? ` · ${titleTask.salary}` : ''} · 共 {group.tasks.length} 次运行
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">
-                      已采集 {task.total_collected} 个岗位
-                      {task.start_page > 0 && ` · 起始页 ${task.start_page}`}
-                      {task.last_page_reached > 0 && ` · 扫到第 ${task.last_page_reached} 页`}
-                      {task.max_pages > 0 && ` · 最多扫 ${task.max_pages} 页`}
-                      {task.target_new_jobs > 0 && ` · 目标 ${task.target_new_jobs} 个新岗位`}
-                      {task.stop_after_stale_pages > 0 && ` · 空转 ${task.stop_after_stale_pages} 页即停`}
-                    </span>
-                    <div className="flex gap-1">
-                      {task.status === 'pending' && (
-                        <Button size="sm" variant="outline" onClick={() => handleStart(task.id)} disabled={!browserReady}>
-                          <Play className="h-3 w-3 mr-1" /> 开始
-                        </Button>
-                      )}
-                      {task.status === 'running' && (
-                        <>
-                          <Button size="sm" variant="outline" onClick={() => handlePause(task.id)}>
-                            <Pause className="h-3 w-3 mr-1" /> 暂停
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => handleCancel(task.id)}>
-                            <Square className="h-3 w-3 mr-1" /> 停止
-                          </Button>
-                        </>
-                      )}
-                      {task.status === 'paused' && (
-                        <>
-                          <Button size="sm" variant="outline" onClick={() => handleResume(task.id)} disabled={!browserReady}>
-                            <RotateCcw className="h-3 w-3 mr-1" /> 恢复
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleDelete(task.id)}>
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </>
-                      )}
-                      {(task.status === 'completed' || task.status === 'cancelled' || task.status === 'failed') && (
-                        <Button size="sm" variant="ghost" onClick={() => handleDelete(task.id)}>
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                )}
+                {group.tasks.map((task) => {
+                  const st = statusMap[task.status] || statusMap.pending
+                  return (
+                    <Card key={task.id}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-base">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-xs mr-2 ${platformColors[task.platform] || 'bg-gray-100 text-gray-800'}`}>
+                              {getPlatformName(task.platform)}
+                            </span>
+                            {task.keyword}
+                            <span className="text-sm font-normal text-muted-foreground ml-2">
+                              {task.city}
+                              {task.salary && ` · ${task.salary}`}
+                            </span>
+                          </CardTitle>
+                          <Badge variant={st.variant}>
+                            {task.status === 'running' && (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            )}
+                            {st.label}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-sm text-muted-foreground">
+                            已采集 {task.total_collected} 个岗位 · {getTaskSummary(task)}
+                          </span>
+                          <div className="flex gap-1 shrink-0">
+                            {task.status === 'pending' && (
+                              <Button size="sm" variant="outline" onClick={() => handleStart(task.id)} disabled={!browserReady}>
+                                <Play className="h-3 w-3 mr-1" /> 开始
+                              </Button>
+                            )}
+                            {task.status === 'running' && (
+                              <>
+                                <Button size="sm" variant="outline" onClick={() => handlePause(task.id)}>
+                                  <Pause className="h-3 w-3 mr-1" /> 暂停
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => handleCancel(task.id)}>
+                                  <Square className="h-3 w-3 mr-1" /> 停止
+                                </Button>
+                              </>
+                            )}
+                            {task.status === 'paused' && (
+                              <>
+                                <Button size="sm" variant="outline" onClick={() => handleResume(task.id)} disabled={!browserReady}>
+                                  <RotateCcw className="h-3 w-3 mr-1" /> 恢复
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => handleDelete(task.id)}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </>
+                            )}
+                            {(task.status === 'completed' || task.status === 'cancelled' || task.status === 'failed') && (
+                              <Button size="sm" variant="ghost" onClick={() => handleDelete(task.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
             )
           })
         )}
