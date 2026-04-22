@@ -74,6 +74,7 @@ class BaseScraper(ABC):
 
             city_code = self.resolve_city_code(task.city)
             collected = 0
+            seen_urls_in_task: set[str] = set()
 
             # 获取配置的延迟范围
             page_delay = await self._get_delay("scrape_page_delay", 3.0, 8.0)
@@ -99,21 +100,46 @@ class BaseScraper(ABC):
                 )
                 pending_jobs = []
                 page_seen_urls = set()
-                duplicate_before_detail = 0
+                duplicate_in_page = 0
+                duplicate_in_task = 0
+                duplicate_in_db = 0
+                missing_url = 0
 
                 for job_data in jobs:
                     url = job_data.get("url", "")
-                    if url:
-                        if url in existing_urls or url in page_seen_urls:
-                            duplicate_before_detail += 1
-                            logger.debug("[%s] 列表页跳过重复岗位: %s", self.PLATFORM, url)
-                            continue
-                        page_seen_urls.add(url)
+                    if not url:
+                        missing_url += 1
+                        logger.debug("[%s] 列表页跳过无链接岗位: %s", self.PLATFORM, job_data.get("title", ""))
+                        continue
+                    if url in page_seen_urls:
+                        duplicate_in_page += 1
+                        logger.debug("[%s] 列表页同页重复岗位: %s", self.PLATFORM, url)
+                        continue
+                    if url in seen_urls_in_task:
+                        duplicate_in_task += 1
+                        logger.debug("[%s] 列表页跨页重复岗位: %s", self.PLATFORM, url)
+                        continue
+                    if url in existing_urls:
+                        duplicate_in_db += 1
+                        logger.debug("[%s] 列表页数据库已存在岗位: %s", self.PLATFORM, url)
+                        continue
+
+                    page_seen_urls.add(url)
+                    seen_urls_in_task.add(url)
                     pending_jobs.append(job_data)
 
-                if duplicate_before_detail:
-                    logger.info("[%s] 任务 %d: 第 %d 页跳过 %d 个重复岗位，待抓详情 %d 个",
-                                self.PLATFORM, task_id, page_num, duplicate_before_detail, len(pending_jobs))
+                if duplicate_in_page or duplicate_in_task or duplicate_in_db or missing_url:
+                    logger.info(
+                        "[%s] 任务 %d: 第 %d 页过滤后待抓详情 %d 个 (同页重复=%d, 跨页重复=%d, 库中已存在=%d, 无链接=%d)",
+                        self.PLATFORM,
+                        task_id,
+                        page_num,
+                        len(pending_jobs),
+                        duplicate_in_page,
+                        duplicate_in_task,
+                        duplicate_in_db,
+                        missing_url,
+                    )
 
                 for i, job_data in enumerate(pending_jobs):
                     if not self._running_tasks.get(task_id, False):

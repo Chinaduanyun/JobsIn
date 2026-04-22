@@ -9,7 +9,7 @@ Extension 通过 HTTP 与后端通信，content script 从 DOM 提取数据。
 
 import logging
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from app.services.base_scraper import BaseScraper
 from app.services.extension_bridge import extension_bridge
@@ -17,6 +17,14 @@ from app.services.extension_bridge import extension_bridge
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.zhipin.com"
+
+
+def normalize_job_url(url: str) -> str:
+    if not url:
+        return ""
+    parsed = urlsplit(url)
+    path = parsed.path or ""
+    return urlunsplit(("https", "www.zhipin.com", path, "", ""))
 
 CITY_CODES = {
     "全国": "100010000",
@@ -94,7 +102,7 @@ class BossScraper(BaseScraper):
                 continue
 
             enc_id = ""
-            url = j.get("url", "")
+            url = normalize_job_url(j.get("url", ""))
             if url:
                 m = re.search(r'/job_detail/([^.]+)\.html', url)
                 if m:
