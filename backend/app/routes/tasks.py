@@ -18,8 +18,18 @@ from app.services.scraper_factory import get_scraper, list_platforms
 router = APIRouter()
 
 
+def build_config_key(platform: str, keyword: str, city: str, salary: str) -> str:
+    return "::".join([
+        (platform or "").strip().lower(),
+        (keyword or "").strip().lower(),
+        (city or "").strip().lower(),
+        (salary or "").strip().lower(),
+    ])
+
+
 class TaskCreate(BaseModel):
     platform: str = "boss"
+    mode: Optional[str] = None
     keyword: str
     city: str = "杭州"
     salary: str = ""
@@ -27,6 +37,7 @@ class TaskCreate(BaseModel):
     target_new_jobs: int = 20
     stop_after_stale_pages: int = 2
     start_page: Optional[int] = None
+    refresh_pages: int = 3
 
 
 @router.get("")
@@ -40,25 +51,37 @@ async def list_tasks(session: AsyncSession = Depends(get_session)):
 async def create_task(data: TaskCreate, session: AsyncSession = Depends(get_session)):
     scraper = get_scraper(data.platform)
     city_code = scraper.resolve_city_code(data.city)
+    config_key = build_config_key(data.platform, data.keyword, data.city, data.salary)
 
-    start_page = data.start_page or 1
-    if data.platform == "boss" and data.start_page is None:
-        latest_similar = (
+    mode = (data.mode or ("smart" if data.platform == "boss" else "manual")).strip().lower()
+    if mode not in {"manual", "smart"}:
+        mode = "smart" if data.platform == "boss" else "manual"
+
+    refresh_pages = max(data.refresh_pages or 0, 0)
+    start_page = max(data.start_page or 1, 1)
+    resume_from_page = start_page
+
+    if data.platform == "boss":
+        history = (
             await session.execute(
                 select(CollectionTask)
-                .where(CollectionTask.platform == data.platform)
-                .where(CollectionTask.keyword == data.keyword)
-                .where(CollectionTask.city == data.city)
-                .where(CollectionTask.salary == data.salary)
+                .where(CollectionTask.config_key == config_key)
                 .order_by(CollectionTask.created_at.desc())
-                .limit(1)
             )
-        ).scalar_one_or_none()
-        if latest_similar and latest_similar.last_page_reached > 0:
-            start_page = latest_similar.last_page_reached + 1
+        ).scalars().all()
+        historical_last_page = max((task.last_page_reached or 0) for task in history) if history else 0
+        historical_resume_page = max((task.resume_from_page or 1) for task in history) if history else 1
+
+        if mode == "smart":
+            start_page = 1
+            resume_from_page = max(historical_last_page + 1, historical_resume_page, 1)
+        else:
+            resume_from_page = max(start_page, historical_last_page + 1 if historical_last_page > 0 else 1)
 
     task = CollectionTask(
         platform=data.platform,
+        mode=mode,
+        config_key=config_key,
         keyword=data.keyword,
         city=data.city,
         city_code=city_code,
@@ -67,6 +90,8 @@ async def create_task(data: TaskCreate, session: AsyncSession = Depends(get_sess
         target_new_jobs=data.target_new_jobs,
         stop_after_stale_pages=data.stop_after_stale_pages,
         start_page=start_page,
+        resume_from_page=resume_from_page,
+        refresh_pages=refresh_pages,
     )
     session.add(task)
     await session.commit()
