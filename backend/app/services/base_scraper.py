@@ -44,6 +44,34 @@ class BaseScraper(ABC):
         except (ValueError, IndexError):
             return default_min, default_max
 
+    def _build_page_plan(self, task: CollectionTask) -> tuple[list[int], int]:
+        scan_limit = max(task.max_pages or 1, 1)
+        mode = (task.mode or "manual").lower()
+
+        if mode != "smart":
+            start_page = max(task.start_page or 1, 1)
+            return list(range(start_page, start_page + scan_limit)), 0
+
+        refresh_pages = min(max(task.refresh_pages or 0, 0), scan_limit)
+        resume_from_page = max(task.resume_from_page or 1, 1)
+
+        page_plan: list[int] = []
+        seen_pages: set[int] = set()
+
+        for page_num in range(1, refresh_pages + 1):
+            if page_num not in seen_pages:
+                page_plan.append(page_num)
+                seen_pages.add(page_num)
+
+        next_page = resume_from_page
+        while len(page_plan) < scan_limit:
+            if next_page not in seen_pages:
+                page_plan.append(next_page)
+                seen_pages.add(next_page)
+            next_page += 1
+
+        return page_plan, refresh_pages
+
     async def run_task(self, task_id: int) -> None:
         """执行一个采集任务（通用流程）"""
         if not extension_bridge.connected:
@@ -65,22 +93,29 @@ class BaseScraper(ABC):
                 if not task:
                     return
                 task.status = "running"
+                task.pages_scanned = 0
+                task.current_phase = ""
+                task.display_last_page = 0
+                task.last_page_reached = 0
                 await session.commit()
 
             city_code = self.resolve_city_code(task.city)
             collected = 0
             seen_urls_in_task: set[str] = set()
             stale_pages = 0
-            scan_limit = max(task.max_pages or 1, 1)
-            start_page = max(task.start_page or 1, 1)
-            if task.last_page_reached and task.last_page_reached >= start_page:
-                start_page = task.last_page_reached + 1
-            end_page = start_page + scan_limit - 1
+            page_plan, refresh_cutoff = self._build_page_plan(task)
+            scan_limit = len(page_plan)
+            mode = (task.mode or "manual").lower()
 
             logger.info("[%s] ========== 任务 %d 开始 ==========", self.PLATFORM, task_id)
-            logger.info("[%s] 关键词=%s, 城市=%s(%s), 薪资=%s, 起始页=%d, 最多扫描页数=%d, 目标新岗位=%d, 连续空转停止页数=%d",
-                        self.PLATFORM, task.keyword, task.city, task.city_code,
-                        task.salary or "(不限)", start_page, scan_limit, task.target_new_jobs, task.stop_after_stale_pages)
+            if mode == "smart":
+                logger.info("[%s] 关键词=%s, 城市=%s(%s), 薪资=%s, 模式=smart, 回看前页=%d, 历史续采页=%d, 最多扫描页数=%d, 目标新岗位=%d, 连续空转停止页数=%d",
+                            self.PLATFORM, task.keyword, task.city, task.city_code,
+                            task.salary or "(不限)", refresh_cutoff, max(task.resume_from_page or 1, 1), scan_limit, task.target_new_jobs, task.stop_after_stale_pages)
+            else:
+                logger.info("[%s] 关键词=%s, 城市=%s(%s), 薪资=%s, 模式=manual, 起始页=%d, 最多扫描页数=%d, 目标新岗位=%d, 连续空转停止页数=%d",
+                            self.PLATFORM, task.keyword, task.city, task.city_code,
+                            task.salary or "(不限)", max(task.start_page or 1, 1), scan_limit, task.target_new_jobs, task.stop_after_stale_pages)
 
             # 获取配置的延迟范围
             page_delay = await self._get_delay("scrape_page_delay", 3.0, 8.0)
@@ -89,12 +124,14 @@ class BaseScraper(ABC):
                         self.PLATFORM, page_delay[0], page_delay[1],
                         detail_delay[0], detail_delay[1])
 
-            for page_num in range(start_page, end_page + 1):
+            for index, page_num in enumerate(page_plan, start=1):
                 if not self._running_tasks.get(task_id, False):
                     logger.info("[%s] 任务 %d 被取消", self.PLATFORM, task_id)
                     break
 
-                logger.info("[%s] 任务 %d: ── 扫描第 %d 页（本次第 %d/%d 页）──", self.PLATFORM, task_id, page_num, page_num - start_page + 1, scan_limit)
+                current_phase = "refresh" if mode == "smart" and index <= refresh_cutoff else ("resume" if mode == "smart" else "manual")
+                logger.info("[%s] 任务 %d: ── %s阶段扫描第 %d 页（本次第 %d/%d 页）──",
+                            self.PLATFORM, task_id, current_phase, page_num, index, scan_limit)
                 jobs = await self.scrape_page(task.keyword, city_code, task.salary, page_num)
 
                 if not jobs:
@@ -104,7 +141,10 @@ class BaseScraper(ABC):
                 async with async_session_factory() as session:
                     t = await session.get(CollectionTask, task_id)
                     if t:
-                        t.last_page_reached = page_num
+                        t.current_phase = current_phase
+                        t.pages_scanned = index
+                        t.display_last_page = page_num
+                        t.last_page_reached = max(t.last_page_reached or 0, page_num)
                         await session.commit()
 
                 existing_urls = await self._find_existing_job_urls(
@@ -210,7 +250,7 @@ class BaseScraper(ABC):
                     logger.info("[%s] 任务 %d: 已达到目标新岗位数 %d，提前结束", self.PLATFORM, task_id, task.target_new_jobs)
                     break
 
-                if page_num < end_page:
+                if index < scan_limit:
                     delay = random.uniform(*page_delay)
                     logger.info("[%s] 等待 %.1fs 后翻页...", self.PLATFORM, delay)
                     await asyncio.sleep(delay)
@@ -221,8 +261,7 @@ class BaseScraper(ABC):
                 if t and t.status == "running":
                     t.status = final_status
                     t.total_collected = collected
-                    if final_status == "completed":
-                        t.start_page = (t.last_page_reached or start_page) + 1
+                    t.current_phase = "done" if final_status == "completed" else t.current_phase
                     await session.commit()
             logger.info("[%s] ========== 任务 %d %s: 共采集 %d 个岗位 ==========",
                         self.PLATFORM, task_id, final_status, collected)
