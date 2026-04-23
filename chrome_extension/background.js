@@ -241,11 +241,9 @@ async function handleExtractJobs(cmd) {
     return { success: false, error: `导航失败: ${err.message}` };
   }
 
-  // 检查是否被安全拦截
   const tab = await chrome.tabs.get(tid);
   const currentUrl = tab.url || '';
   if (currentUrl.includes('verify.html') || currentUrl.includes('security.html')) {
-    // 把标签页激活让用户看到
     await chrome.tabs.update(tid, { active: true });
     return { success: false, error: 'security_check', security_check: true };
   }
@@ -253,15 +251,24 @@ async function handleExtractJobs(cmd) {
     return { success: false, error: '页面被重定向到空白页，可能被检测' };
   }
 
-  // 额外等待 DOM 渲染
-  await new Promise(r => setTimeout(r, 2000));
+  await chrome.tabs.update(tid, { active: true });
+  await new Promise(r => setTimeout(r, 2500));
 
-  try {
-    const response = await sendToContent(tid, { action: 'extract_jobs' }, 40000);
-    return { success: true, data: response };
-  } catch (err) {
-    return { success: false, error: `提取失败: ${err.message}` };
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await sendToContent(tid, { action: 'extract_jobs' }, 45000);
+      if (response?.jobs?.length || response?.empty) {
+        return { success: true, data: response };
+      }
+      lastError = new Error(response?.message || '未提取到岗位卡片');
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise(r => setTimeout(r, 1500));
   }
+
+  return { success: false, error: `提取失败: ${lastError?.message || '未知错误'}` };
 }
 
 // ── 采集岗位详情 ─────────────────────────────

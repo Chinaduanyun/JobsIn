@@ -93,10 +93,30 @@ class BossScraper(BaseScraper):
                 logger.warning("[Boss] 第 %d 页未提取到岗位: %s", page, data.get("message", ""))
             return []
 
-        logger.info("[Boss] 第 %d 页提取到 %d 个岗位 (初始=%d, 最终=%d, 卡片总数=%d, 已滚动=%s, 找到滚动容器=%s)",
+        logger.info("[Boss] 第 %d 页提取到 %d 个岗位 (初始=%d, 过程最大=%d, 最终=%d, 新加载=%d, 确认增量=%s, 卡片总数=%d, 已滚动=%s, 找到滚动容器=%s, 滚动节点=%s, 来源=%s, 深度=%s, 探测可滚=%s, 滚动位移=%s, 高度增量=%s, 候选=%s)",
                     page, len(jobs_raw), data.get("initial_count", len(jobs_raw)),
-                    data.get("final_count", len(jobs_raw)), data.get("total_cards", 0),
-                    data.get("scrolled", False), data.get("scroller_found", False))
+                    data.get("max_count_seen", data.get("final_count", len(jobs_raw))),
+                    data.get("final_count", len(jobs_raw)), data.get("loaded_count", 0),
+                    data.get("loaded_more", False), data.get("total_cards", 0),
+                    data.get("scrolled", False), data.get("scroller_found", False),
+                    (data.get("scroller_debug") or {}).get("node", ""),
+                    (data.get("scroller_debug") or {}).get("source", ""),
+                    (data.get("scroller_debug") or {}).get("depth", ""),
+                    (data.get("scroller_debug") or {}).get("probeMoved", False),
+                    data.get("scroller_last_movement", 0),
+                    data.get("scroller_height_delta", 0),
+                    [
+                        {
+                            "node": item.get("node", ""),
+                            "source": item.get("source", ""),
+                            "depth": item.get("depth", ""),
+                            "page": item.get("isPageScroller", False),
+                            "delta": item.get("delta", 0),
+                            "probeMoved": item.get("probeMoved", False),
+                            "score": item.get("score", 0),
+                        }
+                        for item in (data.get("scroller_debug") or {}).get("candidates", [])[:4]
+                    ])
 
         result_list = []
         for idx, j in enumerate(jobs_raw):

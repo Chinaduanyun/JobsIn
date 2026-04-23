@@ -1058,49 +1058,201 @@ function getJobCards() {
   return Array.from(document.querySelectorAll('.job-card-wrapper, .job-card-box'));
 }
 
+function pushUniqueElement(list, el) {
+  if (el instanceof HTMLElement && !list.includes(el)) {
+    list.push(el);
+  }
+}
+
+function getScrollableDelta(el) {
+  return el instanceof HTMLElement ? Math.max(0, el.scrollHeight - el.clientHeight) : 0;
+}
+
+function describeElement(el) {
+  if (!(el instanceof HTMLElement)) return '';
+  const cls = (el.className || '').toString().trim().replace(/\s+/g, '.');
+  return `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${cls ? `.${cls}` : ''}`;
+}
+
+function probeScrollMovement(el) {
+  if (!(el instanceof HTMLElement)) {
+    return { moved: false, distance: 0 };
+  }
+
+  const isPageScroller = el === document.scrollingElement || el === document.documentElement || el === document.body;
+  const maxTop = isPageScroller
+    ? Math.max((document.scrollingElement?.scrollHeight || el.scrollHeight) - window.innerHeight, 0)
+    : getScrollableDelta(el);
+  const viewportHeight = isPageScroller ? window.innerHeight : el.clientHeight;
+
+  if (maxTop <= 24 || viewportHeight <= 0) {
+    return { moved: false, distance: 0 };
+  }
+
+  const beforeTop = isPageScroller ? window.scrollY : el.scrollTop;
+  const step = Math.min(Math.max(96, Math.floor(viewportHeight * 0.35)), maxTop);
+  const targetTop = Math.min(beforeTop + step, maxTop);
+
+  try {
+    if (isPageScroller) {
+      window.scrollTo({ top: targetTop, behavior: 'auto' });
+    } else {
+      el.scrollTop = targetTop;
+    }
+  } catch { /* ignore */ }
+
+  let afterTop = isPageScroller ? window.scrollY : el.scrollTop;
+  if (afterTop <= beforeTop + 2) {
+    try {
+      if (isPageScroller) {
+        window.scrollBy({ top: step, behavior: 'auto' });
+      } else {
+        el.scrollBy({ top: step, behavior: 'auto' });
+      }
+      afterTop = isPageScroller ? window.scrollY : el.scrollTop;
+    } catch { /* ignore */ }
+  }
+
+  const distance = Math.max(0, afterTop - beforeTop);
+
+  if (afterTop !== beforeTop) {
+    try {
+      if (isPageScroller) {
+        window.scrollTo({ top: beforeTop, behavior: 'auto' });
+      } else {
+        el.scrollTop = beforeTop;
+      }
+    } catch { /* ignore */ }
+  }
+
+  return {
+    moved: distance > 2,
+    distance,
+  };
+}
+
+function collectSearchScrollerCandidates(container) {
+  const candidates = [];
+  const addCandidate = (el, source, depth = 0) => {
+    if (!(el instanceof HTMLElement)) return;
+    if (el.clientHeight <= 0 || el.getClientRects().length === 0) return;
+    if (candidates.some(item => item.el === el)) return;
+    candidates.push({ el, source, depth });
+  };
+
+  addCandidate(container, 'container', 0);
+  addCandidate(container.firstElementChild, 'container-child', 1);
+  addCandidate(container.lastElementChild, 'container-child', 1);
+  addCandidate(document.scrollingElement, 'page-root', 0);
+  addCandidate(document.documentElement, 'page-root', 0);
+  addCandidate(document.body, 'page-root', 0);
+
+  let parent = container.parentElement;
+  let parentDepth = 1;
+  while (parent && parentDepth <= 12) {
+    addCandidate(parent, 'container-parent', parentDepth);
+    if (parent === document.body) break;
+    parent = parent.parentElement;
+    parentDepth += 1;
+  }
+
+  container
+    .querySelectorAll('.job-list-container, .rec-job-list, .job-list, .job-list-box, .search-job-result, .left-side, [class*="job-list"], [class*="list-container"], [class*="scroll"]')
+    .forEach(el => addCandidate(el, 'query-match', 0));
+
+  const sampleCards = getJobCards().slice(0, 5);
+  sampleCards.forEach((card, cardIndex) => {
+    let current = card.parentElement;
+    let depth = 1;
+    while (current && depth <= 14) {
+      addCandidate(current, `card-${cardIndex + 1}`, depth);
+      if (current === document.body) break;
+      current = current.parentElement;
+      depth += 1;
+    }
+  });
+
+  return candidates;
+}
+
+function getOverflowScore(overflowY) {
+  if (overflowY === 'scroll' || overflowY === 'auto') return 3;
+  if (overflowY === 'overlay') return 2;
+  if (overflowY === 'hidden') return 1;
+  return 0;
+}
+
+function inspectScrollerCandidate(candidate) {
+  const { el, source, depth } = candidate;
+  const isPageScroller = el === document.scrollingElement || el === document.documentElement || el === document.body;
+  const delta = isPageScroller
+    ? Math.max((document.scrollingElement?.scrollHeight || el.scrollHeight) - window.innerHeight, 0)
+    : getScrollableDelta(el);
+  const overflowY = isPageScroller ? window.getComputedStyle(document.body).overflowY : window.getComputedStyle(el).overflowY;
+  const hasCards = Boolean(el.querySelector?.('.job-card-wrapper, .job-card-box')) || isPageScroller;
+  const probe = probeScrollMovement(el);
+  const score = (probe.moved ? 1000 : 0)
+    + probe.distance
+    + Math.min(delta, 4000) / 40
+    + getOverflowScore(overflowY) * 40
+    + (hasCards ? 30 : 0)
+    + (isPageScroller ? 20 : 0)
+    - Math.min(depth, 12) * 2;
+
+  return {
+    el,
+    score,
+    debug: {
+      node: describeElement(el),
+      source,
+      depth,
+      isPageScroller,
+      delta,
+      overflowY,
+      clientHeight: isPageScroller ? window.innerHeight : el.clientHeight,
+      scrollHeight: isPageScroller ? (document.scrollingElement?.scrollHeight || el.scrollHeight) : el.scrollHeight,
+      probeMoved: probe.moved,
+      probeDistance: probe.distance,
+      hasCards,
+      score,
+    },
+  };
+}
+
 function getSearchListScroller() {
-  const candidates = [
-    document.querySelector('.job-list-container'),
-    document.querySelector('.search-job-result'),
-    document.querySelector('.job-list-box'),
-    document.querySelector('.job-list'),
-    document.querySelector('.search-job-list'),
-    document.querySelector('.job-card-list'),
-    document.querySelector('.job-list-wrapper'),
-    document.querySelector('.left-side'),
-    document.querySelector('.left-list'),
-  ].filter(Boolean);
-
-  const cards = getJobCards();
-  if (cards.length) {
-    let node = cards[0].parentElement;
-    while (node && node !== document.body) {
-      candidates.push(node);
-      node = node.parentElement;
-    }
+  const container = document.querySelector('.job-list-container') || getJobCards()[0]?.closest('.job-list-container');
+  if (!container) {
+    return { el: null, debug: null };
   }
 
-  const scored = candidates
-    .filter((el, index, arr) => el && arr.indexOf(el) === index)
-    .map((el) => ({
-      el,
-      scrollableDelta: Math.max(0, el.scrollHeight - el.clientHeight),
-      cardCount: el.querySelectorAll('.job-card-wrapper, .job-card-box').length,
-      overflowY: getComputedStyle(el).overflowY,
-    }))
-    .filter(item => item.scrollableDelta > 40 || item.cardCount >= 8)
-    .sort((a, b) => {
-      if (b.cardCount !== a.cardCount) return b.cardCount - a.cardCount;
-      return b.scrollableDelta - a.scrollableDelta;
-    });
+  const inspected = collectSearchScrollerCandidates(container)
+    .map(inspectScrollerCandidate)
+    .sort((a, b) => b.score - a.score);
 
-  for (const item of scored) {
-    if (item.scrollableDelta > 40) {
-      return item.el;
-    }
+  const best = inspected[0];
+  if (!best) {
+    return { el: null, debug: null };
   }
 
-  return scored[0]?.el || null;
+  return {
+    el: best.el,
+    debug: {
+      ...best.debug,
+      candidates: inspected.slice(0, 8).map(item => item.debug),
+    },
+  };
+}
+
+async function waitForJobsSnapshot(maxAttempts = 12, delayMs = 500) {
+  let lastSnapshot = readJobsSnapshot();
+  for (let i = 0; i < maxAttempts; i++) {
+    if (lastSnapshot.jobs?.length || lastSnapshot.empty) {
+      return lastSnapshot;
+    }
+    await sleep(delayMs);
+    lastSnapshot = readJobsSnapshot();
+  }
+  return lastSnapshot;
 }
 
 function readJobsSnapshot() {
@@ -1202,66 +1354,125 @@ function dedupeJobs(jobs) {
 }
 
 async function extractJobs() {
-  const initialSnapshot = readJobsSnapshot();
+  const initialSnapshot = await waitForJobsSnapshot();
   if (!initialSnapshot.jobs?.length) {
     return initialSnapshot;
   }
 
-  const scroller = getSearchListScroller();
+  const { el: scroller, debug: scrollerDebug } = getSearchListScroller();
   let scrolled = false;
   let stableRounds = 0;
-  let lastCount = initialSnapshot.jobs.length;
-  let lastHeight = scroller ? scroller.scrollHeight : 0;
+  let stagnantRounds = 0;
+  let maxCountSeen = initialSnapshot.jobs.length;
+  let maxCardsSeen = initialSnapshot.total_cards || initialSnapshot.jobs.length;
+  let maxHeightSeen = scroller ? scroller.scrollHeight : 0;
   let lastTop = scroller ? scroller.scrollTop : 0;
+  let lastMovement = 0;
 
   if (scroller) {
-    for (let i = 0; i < 14; i++) {
-      const nextTop = Math.min(scroller.scrollTop + Math.max(400, Math.floor(scroller.clientHeight * 0.9)), scroller.scrollHeight);
-      scroller.scrollTo({ top: nextTop, behavior: 'instant' });
-      scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
-      scrolled = scrolled || nextTop !== lastTop;
-      await sleep(900);
+    const isPageScroller = scroller === document.scrollingElement || scroller === document.documentElement || scroller === document.body;
+    scroller.focus?.();
+
+    for (let i = 0; i < 18; i++) {
+      const viewportHeight = isPageScroller ? window.innerHeight : scroller.clientHeight;
+      const currentScrollHeight = isPageScroller ? (document.scrollingElement?.scrollHeight || scroller.scrollHeight) : scroller.scrollHeight;
+      const step = Math.max(480, Math.floor(viewportHeight * 0.9));
+      const beforeTop = isPageScroller ? window.scrollY : scroller.scrollTop;
+      const beforeHeight = currentScrollHeight;
+
+      scroller.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+      scroller.dispatchEvent?.(new MouseEvent('mouseenter', { bubbles: true }));
+      scroller.dispatchEvent?.(new MouseEvent('mousemove', { bubbles: true }));
+      window.dispatchEvent(new WheelEvent('wheel', { deltaY: step, bubbles: true, cancelable: true }));
+      scroller.dispatchEvent?.(new WheelEvent('wheel', { deltaY: step, bubbles: true, cancelable: true }));
+
+      const maxTop = Math.max(currentScrollHeight - viewportHeight, 0);
+      const nextTop = Math.min(beforeTop + step, maxTop);
+
+      try {
+        if (isPageScroller) {
+          window.scrollBy({ top: step, behavior: 'auto' });
+        } else {
+          scroller.scrollBy({ top: step, behavior: 'auto' });
+        }
+      } catch { /* ignore */ }
+      try {
+        if (isPageScroller) {
+          window.scrollTo({ top: nextTop, behavior: 'auto' });
+        } else {
+          scroller.scrollTo({ top: nextTop, behavior: 'auto' });
+        }
+      } catch { /* ignore */ }
+      try {
+        if (isPageScroller) {
+          window.scrollTo({ top: nextTop, behavior: 'auto' });
+        } else {
+          scroller.scrollTop = nextTop;
+        }
+      } catch { /* ignore */ }
+
+      scroller.dispatchEvent?.(new Event('scroll', { bubbles: true }));
+      window.dispatchEvent(new Event('scroll', { bubbles: true }));
+
+      await sleep(1200);
 
       const snapshot = readJobsSnapshot();
       const currentCount = snapshot.jobs.length;
-      const currentHeight = scroller.scrollHeight;
-      const currentTop = scroller.scrollTop;
-      const moved = currentTop > lastTop + 20;
-      const grew = currentCount > lastCount || currentHeight > lastHeight;
+      const currentCards = snapshot.total_cards || currentCount;
+      const afterTop = isPageScroller ? window.scrollY : scroller.scrollTop;
+      const movedBy = Math.max(0, afterTop - beforeTop);
+      const afterHeight = isPageScroller ? (document.scrollingElement?.scrollHeight || scroller.scrollHeight) : scroller.scrollHeight;
+      const moved = movedBy > 2;
+      const grew = currentCount > maxCountSeen || currentCards > maxCardsSeen || afterHeight > maxHeightSeen || afterHeight > beforeHeight;
 
-      if (grew || moved) {
+      if (grew) {
         stableRounds = 0;
+        stagnantRounds = 0;
+      } else if (moved) {
+        stableRounds += 1;
+        stagnantRounds = 0;
       } else {
         stableRounds += 1;
+        stagnantRounds += 1;
       }
 
-      lastCount = Math.max(lastCount, currentCount);
-      lastHeight = Math.max(lastHeight, currentHeight);
-      lastTop = currentTop;
+      scrolled = scrolled || moved;
+      lastMovement = movedBy;
+      maxCountSeen = Math.max(maxCountSeen, currentCount);
+      maxCardsSeen = Math.max(maxCardsSeen, currentCards);
+      maxHeightSeen = Math.max(maxHeightSeen, afterHeight);
+      lastTop = afterTop;
 
-      const atBottom = currentTop + scroller.clientHeight >= currentHeight - 24;
-      if (atBottom && stableRounds >= 2) {
+      const atBottom = afterTop + viewportHeight >= afterHeight - 24;
+      if ((atBottom && stableRounds >= 3) || stagnantRounds >= 4) {
         break;
       }
     }
-
-    scroller.scrollTo({ top: 0, behavior: 'instant' });
   }
 
-  await sleep(200);
-  const finalSnapshot = readJobsSnapshot();
+  await sleep(300);
+  const finalSnapshot = await waitForJobsSnapshot(4, 300);
   const { deduped, duplicateCount } = dedupeJobs(finalSnapshot.jobs || []);
+  const loadedCount = Math.max(0, maxCountSeen - initialSnapshot.jobs.length);
+  const loadedMore = loadedCount > 0 || maxCardsSeen > (initialSnapshot.total_cards || initialSnapshot.jobs.length);
 
   return {
     jobs: deduped,
     empty: false,
     page_url: window.location.href,
-    total_cards: finalSnapshot.total_cards || 0,
+    total_cards: maxCardsSeen,
     initial_count: initialSnapshot.jobs.length,
+    max_count_seen: maxCountSeen,
     final_count: finalSnapshot.jobs.length,
+    loaded_count: loadedCount,
+    loaded_more: loadedMore,
     duplicate_count: duplicateCount,
     scrolled,
     scroller_found: Boolean(scroller),
+    scroller_debug: scrollerDebug,
+    scroller_last_top: lastTop,
+    scroller_last_movement: lastMovement,
+    scroller_height_delta: Math.max(0, maxHeightSeen - (scrollerDebug?.scrollHeight || 0)),
   };
 }
 
