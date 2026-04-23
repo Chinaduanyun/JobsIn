@@ -89,22 +89,34 @@ export default function TasksPage() {
     tasksApi.platforms().then(setPlatforms).catch(() => {})
   }, [])
 
+  const hasRunningTask = taskList.some(t => t.status === 'running')
+
   // Poll while any task is running
   useEffect(() => {
-    const hasRunning = taskList.some(t => t.status === 'running')
-    if (hasRunning && !pollRef.current) {
-      pollRef.current = setInterval(() => {
-        refresh()
-        refreshStatuses()
-      }, 3000)
-    } else if (!hasRunning && pollRef.current) {
+    if (hasRunningTask) {
+      if (!pollRef.current) {
+        pollRef.current = setInterval(() => {
+          refresh()
+          refreshStatuses()
+        }, 3000)
+      }
+      return
+    }
+
+    if (pollRef.current) {
       clearInterval(pollRef.current)
       pollRef.current = null
     }
+  }, [hasRunningTask])
+
+  useEffect(() => {
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
     }
-  }, [taskList])
+  }, [])
 
   const handleCreate = async () => {
     if (!form.keyword.trim()) return
@@ -161,6 +173,38 @@ export default function TasksPage() {
   const handleDelete = async (id: number) => {
     await tasksApi.delete(id)
     refresh()
+  }
+
+  const handleRerun = async (task: CollectionTask) => {
+    setError('')
+    try {
+      const created = await tasksApi.create({
+        platform: task.platform,
+        mode: task.mode,
+        keyword: task.keyword,
+        city: task.city,
+        salary: task.salary,
+        max_pages: task.max_pages,
+        target_new_jobs: task.target_new_jobs,
+        stop_after_stale_pages: task.stop_after_stale_pages,
+        start_page: task.mode === 'manual' ? task.start_page : undefined,
+        refresh_pages: task.mode === 'smart' ? task.refresh_pages : undefined,
+      })
+
+      if (browserReady) {
+        try {
+          await tasksApi.start(created.id)
+        } catch (e: any) {
+          refresh()
+          setError(`已创建任务 #${created.id}，但自动启动失败：${e.message || '请手动启动'}`)
+          return
+        }
+      }
+
+      refresh()
+    } catch (e: any) {
+      setError(e.message || '再次进行任务失败')
+    }
   }
 
   // AI 智能创建
@@ -584,6 +628,11 @@ export default function TasksPage() {
                             {task.status === 'pending' && (
                               <Button size="sm" variant="outline" onClick={() => handleStart(task.id)} disabled={!browserReady}>
                                 <Play className="h-3 w-3 mr-1" /> 开始
+                              </Button>
+                            )}
+                            {(task.status === 'completed' || task.status === 'cancelled' || task.status === 'failed') && (
+                              <Button size="sm" variant="outline" onClick={() => handleRerun(task)}>
+                                <RotateCcw className="h-3 w-3 mr-1" /> 再次进行
                               </Button>
                             )}
                             {task.status === 'running' && (
