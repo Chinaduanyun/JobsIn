@@ -13,12 +13,15 @@ const API_BASES = ['http://localhost:27788', 'http://127.0.0.1:27788'];
 const POLL_INTERVAL = 1500; // ms
 const REQUEST_TIMEOUT = 12000;
 const POLL_ALARM_NAME = 'findjobs-command-poll';
+const PENDING_RESULTS_STORAGE_KEY = 'pendingResultReports';
+const MAX_PENDING_RESULT_RETRIES = 5;
 let isPolling = false;
 let pollInFlight = false;
 let connected = false;
 let tabId = null; // 采集用的标签页
 let activeApiBase = API_BASES[0];
 let lastBackendSeenAt = 0;
+let pendingResultReports = [];
 
 function getApiBaseCandidates() {
   return [activeApiBase, ...API_BASES.filter(base => base !== activeApiBase)];
@@ -70,7 +73,58 @@ function getStatus() {
     mode: currentMode,
     activeApiBase,
     lastBackendSeenAt,
+    pendingResultReports: pendingResultReports.length,
   };
+}
+
+function persistPendingResults() {
+  chrome.storage.local.set({ [PENDING_RESULTS_STORAGE_KEY]: pendingResultReports });
+}
+
+async function enqueuePendingResult(report) {
+  pendingResultReports = [
+    ...pendingResultReports.filter(item => item.command_id !== report.command_id),
+    report,
+  ];
+  persistPendingResults();
+}
+
+async function reportCommandResult(report) {
+  const response = await apiFetch('/api/extension/result', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(report),
+  });
+
+  if (!response.ok) {
+    throw new Error(`结果上报失败: ${response.status}`);
+  }
+
+  pendingResultReports = pendingResultReports.filter(item => item.command_id !== report.command_id);
+  persistPendingResults();
+}
+
+async function flushPendingResults() {
+  if (pendingResultReports.length === 0) return;
+
+  const queue = [...pendingResultReports];
+  for (const report of queue) {
+    try {
+      await reportCommandResult(report);
+    } catch (err) {
+      report.retry_count = (report.retry_count || 0) + 1;
+      if (report.retry_count >= MAX_PENDING_RESULT_RETRIES) {
+        pendingResultReports = pendingResultReports.filter(item => item.command_id !== report.command_id);
+        persistPendingResults();
+        console.warn('[FindJobs] 丢弃多次失败的结果上报:', report.command_id);
+        continue;
+      }
+      pendingResultReports = pendingResultReports.map(item => item.command_id === report.command_id ? report : item);
+      persistPendingResults();
+      console.warn('[FindJobs] 结果补发失败，将继续重试:', err.message || err);
+      break;
+    }
+  }
 }
 
 // ── 轮询后端命令 ──────────────────────────────
@@ -80,6 +134,8 @@ async function pollCommand() {
 
   pollInFlight = true;
   try {
+    await flushPendingResults();
+
     const resp = await apiFetch('/api/extension/command', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
@@ -158,15 +214,14 @@ async function executeCommand(cmd) {
     result = { success: false, error: err.message };
   }
 
+  const report = { command_id: id, ...result, retry_count: 0 };
+
   // 报告结果
   try {
-    await apiFetch('/api/extension/result', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command_id: id, ...result }),
-    });
+    await reportCommandResult(report);
   } catch (err) {
-    console.error('[FindJobs] 报告结果失败:', err);
+    console.error('[FindJobs] 报告结果失败，已加入重试队列:', err);
+    await enqueuePendingResult(report);
   }
 }
 
@@ -582,8 +637,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ── 初始化：恢复上次保存的模式 ─────────────────
 
-chrome.storage.local.get(['mode', POLLING_STORAGE_KEY], (result) => {
+chrome.storage.local.get(['mode', POLLING_STORAGE_KEY, PENDING_RESULTS_STORAGE_KEY], async (result) => {
   currentMode = normalizeMode(result.mode);
+  pendingResultReports = Array.isArray(result[PENDING_RESULTS_STORAGE_KEY]) ? result[PENDING_RESULTS_STORAGE_KEY] : [];
   console.log('[FindJobs] 初始模式:', currentMode);
   updateConnectionIcon(); // 初始灰色
 
@@ -593,10 +649,12 @@ chrome.storage.local.get(['mode', POLLING_STORAGE_KEY], (result) => {
   }
 
   startPolling();
+  await flushPendingResults();
 });
 
-chrome.runtime.onStartup?.addListener(() => {
+chrome.runtime.onStartup?.addListener(async () => {
   if (!isPolling) return;
   ensurePollingAlarm();
+  await flushPendingResults();
   pollCommand();
 });
