@@ -142,6 +142,23 @@ npm run dev
 ```
 前端访问 `http://localhost:5173`，Vite 自动代理 `/api` 到后端。
 
+**方式六：macOS 双击 `start_jobsin.command`**
+
+如果你是从 GitHub 下载的 zip，macOS 可能会拦截这个脚本。先去掉下载隔离标记：
+
+```bash
+xattr -d com.apple.quarantine ./start_jobsin.command
+chmod +x ./start_jobsin.command
+```
+
+如果整个项目目录都是下载得到的，也可以直接对项目目录执行：
+
+```bash
+xattr -dr com.apple.quarantine .
+```
+
+然后再双击 `start_jobsin.command` 即可。
+
 ---
 
 ### 5. 安装 Chrome Extension
@@ -273,8 +290,16 @@ pip install uvicorn
 
 ### macOS 提示权限问题
 ```bash
-# 确保 start.sh 有执行权限
+# 确保启动脚本有执行权限
 chmod +x start.sh
+chmod +x start_jobsin.command
+```
+
+如果是从 GitHub 下载的 zip，先移除下载隔离标记：
+```bash
+xattr -d com.apple.quarantine ./start_jobsin.command
+# 或对整个项目目录执行
+xattr -dr com.apple.quarantine .
 ```
 
 ## 支持平台
