@@ -19,6 +19,7 @@ export interface Job {
   company_industry: string
   tags: string
   collected_at: string
+  apply_status?: string
   analysis?: JobAnalysis | null
 }
 
