@@ -63,6 +63,8 @@ async def _send_via_extension(job: Job, greeting_text: str) -> dict:
         error = result.get("error", "未知错误")
         if "security_check" in str(error):
             raise RuntimeError("安全验证触发，请在浏览器中完成验证")
+        if result.get("transport_error"):
+            raise RuntimeError(f"扩展通道异常: {error}")
         raise RuntimeError(f"投递失败: {error}")
 
     # background.js 返回 { success, data: contentResponse }
@@ -112,7 +114,7 @@ async def apply_to_job(job_id: int, greeting_text: str | None = None) -> Applica
         sent = result.get("sent", False) if isinstance(result, dict) else False
         status = "sent" if sent else "recorded"
     except Exception as e:
-        logger.warning("[投递] 岗位 %d 扩展发送失败: %s, 标记为 recorded", job_id, e)
+        logger.warning("[投递] 岗位 %d 扩展通道失败: %s, 标记为 recorded", job_id, e)
         status = "recorded"
 
     async with async_session() as session:

@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://www.zhipin.com"
 
 
+class ExtensionTransportError(RuntimeError):
+    """扩展命令通道异常。"""
+
+
 def normalize_job_url(url: str) -> str:
     if not url:
         return ""
@@ -57,8 +61,7 @@ class BossScraper(BaseScraper):
 
     async def scrape_page(self, keyword: str, city_code: str, salary: str, page: int) -> list[dict]:
         if not extension_bridge.connected:
-            logger.warning("[Boss] Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
-            return []
+            raise ExtensionTransportError("Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
 
         # 构造搜索 URL
         search_url = f"{BASE_URL}/web/geek/job?query={quote(keyword)}&city={city_code}&page={page}"
@@ -79,8 +82,10 @@ class BossScraper(BaseScraper):
             error = result.get("error", "未知错误")
             if result.get("security_check"):
                 logger.error("[Boss] 遇到安全验证，请在 Chrome 中完成验证后重试")
-            else:
-                logger.error("[Boss] 采集失败: %s", error)
+                raise ExtensionTransportError("安全验证触发，请在 Chrome 中完成验证后重试")
+            if result.get("transport_error"):
+                raise ExtensionTransportError(f"扩展命令通道异常: {error}")
+            logger.error("[Boss] 采集失败: %s", error)
             return []
 
         data = result.get("data", {})
@@ -163,7 +168,7 @@ class BossScraper(BaseScraper):
             return {}
 
         if not extension_bridge.connected:
-            return {}
+            raise ExtensionTransportError("Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
 
         logger.debug("[Boss] 通过扩展获取详情: %s", job_url)
 
@@ -176,8 +181,10 @@ class BossScraper(BaseScraper):
         if not result.get("success"):
             if result.get("security_check"):
                 logger.warning("[Boss] 详情页遇到安全验证")
-            else:
-                logger.warning("[Boss] 详情获取失败: %s", result.get("error", ""))
+                raise ExtensionTransportError("安全验证触发，请在 Chrome 中完成验证后重试")
+            if result.get("transport_error"):
+                raise ExtensionTransportError(f"扩展详情通道异常: {result.get('error', '')}")
+            logger.warning("[Boss] 详情获取失败: %s", result.get("error", ""))
             return {}
 
         data = result.get("data", {})

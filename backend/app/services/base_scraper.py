@@ -13,6 +13,7 @@ from sqlmodel import select
 from app.database import async_session as async_session_factory
 from app.models import Job, CollectionTask, SystemConfig
 from app.services.browser import boss_browser
+from app.services.boss_scraper import ExtensionTransportError
 from app.services.extension_bridge import extension_bridge
 
 logger = logging.getLogger(__name__)
@@ -137,7 +138,11 @@ class BaseScraper(ABC):
                 current_phase = "refresh" if mode == "smart" and index <= refresh_cutoff else ("resume" if mode == "smart" else "manual")
                 logger.info("[%s] 任务 %d: ── %s阶段扫描第 %d 页（本次第 %d/%d 页）──",
                             self.PLATFORM, task_id, current_phase, page_num, index, scan_limit)
-                jobs = await self.scrape_page(task.keyword, city_code, task.salary, page_num)
+                try:
+                    jobs = await self.scrape_page(task.keyword, city_code, task.salary, page_num)
+                except ExtensionTransportError as e:
+                    logger.error("[%s] 任务 %d: 第 %d 页扩展通道异常: %s", self.PLATFORM, task_id, page_num, e)
+                    raise
 
                 if not jobs:
                     logger.info("[%s] 任务 %d: 第 %d 页无结果，停止", self.PLATFORM, task_id, page_num)
@@ -237,12 +242,13 @@ class BaseScraper(ABC):
                         logger.debug("[%s] 抓取详情 %d/%d: %s",
                                      self.PLATFORM, i + 1, len(pending_jobs), job_data.get("url", ""))
                         detail = await self.fetch_detail(job_data.get("url", ""))
-                        # 如果列表页薪资有乱码（包含私用区字符或问号），用详情页的
                         list_salary = job_data.get("salary", "")
                         detail_salary = detail.pop("salary", "")
                         if detail_salary and (not list_salary or '?' in list_salary or not any(c.isdigit() for c in list_salary)):
                             job_data["salary"] = detail_salary
                         job_data.update(detail)
+                    except ExtensionTransportError:
+                        raise
                     except Exception as e:
                         logger.warning("[%s] 抓详情失败 %s: %s", self.PLATFORM, job_data.get("url"), e)
 
