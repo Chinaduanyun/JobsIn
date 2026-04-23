@@ -11,17 +11,12 @@ import logging
 import re
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from app.services.base_scraper import BaseScraper
+from app.services.base_scraper import BaseScraper, ExtensionTransportError
 from app.services.extension_bridge import extension_bridge
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.zhipin.com"
-
-
-class ExtensionTransportError(RuntimeError):
-    """扩展命令通道异常。"""
-
 
 def normalize_job_url(url: str) -> str:
     if not url:

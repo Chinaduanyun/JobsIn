@@ -3,7 +3,7 @@ set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$DIR/.venv"
-echo "=== FindJobs 启动 ==="
+echo "=== JobsIn 启动 ==="
 
 # 检查依赖
 command -v node >/dev/null 2>&1 || { echo "需要 node"; exit 1; }

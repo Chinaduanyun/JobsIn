@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FindJobs 跨平台一键启动脚本
+JobsIn 跨平台一键启动脚本
 
 使用方法:
   python start.py          # 正常启动
@@ -138,7 +138,7 @@ def start_server(port=27788):
     """启动后端服务"""
     print()
     print("=" * 50)
-    print(f"  ✅ FindJobs 启动完成！")
+    print(f"  ✅ JobsIn 启动完成！")
     print(f"  🌐 访问: http://localhost:{port}")
     print(f"  📋 按 Ctrl+C 停止")
     print("=" * 50)
@@ -160,13 +160,13 @@ def start_server(port=27788):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="FindJobs 一键启动")
+    parser = argparse.ArgumentParser(description="JobsIn 一键启动")
     parser.add_argument("--port", type=int, default=27788, help="服务端口 (默认: 27788)")
     parser.add_argument("--skip-build", action="store_true", help="跳过前端构建")
     parser.add_argument("--rebuild", action="store_true", help="强制重新构建前端")
     args = parser.parse_args()
 
-    print("=== FindJobs 启动 ===")
+    print("=== JobsIn 启动 ===")
     print(f"系统: {platform.system()} {platform.machine()}")
     print()
 

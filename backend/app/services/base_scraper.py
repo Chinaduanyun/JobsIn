@@ -13,10 +13,13 @@ from sqlmodel import select
 from app.database import async_session as async_session_factory
 from app.models import Job, CollectionTask, SystemConfig
 from app.services.browser import boss_browser
-from app.services.boss_scraper import ExtensionTransportError
 from app.services.extension_bridge import extension_bridge
 
 logger = logging.getLogger(__name__)
+
+
+class ExtensionTransportError(RuntimeError):
+    """扩展命令通道异常。"""
 
 
 async def _get_config(key: str, default: str) -> str:

@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-echo === FindJobs 启动 ===
+echo === JobsIn 启动 ===
 
 set "DIR=%~dp0"
 
