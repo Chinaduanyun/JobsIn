@@ -12,11 +12,12 @@
 const API_BASES = ['http://localhost:27788', 'http://127.0.0.1:27788'];
 const POLL_INTERVAL = 1500; // ms
 const REQUEST_TIMEOUT = 12000;
+const POLL_ALARM_NAME = 'findjobs-command-poll';
 let isPolling = false;
+let pollInFlight = false;
 let connected = false;
 let tabId = null; // 采集用的标签页
 let activeApiBase = API_BASES[0];
-let pollingTimer = null;
 let lastBackendSeenAt = 0;
 
 function getApiBaseCandidates() {
@@ -75,8 +76,9 @@ function getStatus() {
 // ── 轮询后端命令 ──────────────────────────────
 
 async function pollCommand() {
-  if (!isPolling) return;
+  if (!isPolling || pollInFlight) return;
 
+  pollInFlight = true;
   try {
     const resp = await apiFetch('/api/extension/command', {
       method: 'GET',
@@ -86,7 +88,6 @@ async function pollCommand() {
     if (!resp.ok) {
       connected = false;
       updateConnectionIcon();
-      scheduleNextPoll();
       return;
     }
 
@@ -106,18 +107,17 @@ async function pollCommand() {
       updateConnectionIcon();
     }
     console.debug('[FindJobs] 轮询失败:', err.message);
+  } finally {
+    pollInFlight = false;
+    ensurePollingAlarm();
   }
-
-  scheduleNextPoll();
 }
 
-function scheduleNextPoll() {
+function ensurePollingAlarm() {
   if (!isPolling) return;
-  if (pollingTimer) clearTimeout(pollingTimer);
-  pollingTimer = setTimeout(() => {
-    pollingTimer = null;
-    pollCommand();
-  }, POLL_INTERVAL);
+  chrome.alarms.clear(POLL_ALARM_NAME, () => {
+    chrome.alarms.create(POLL_ALARM_NAME, { when: Date.now() + POLL_INTERVAL });
+  });
 }
 
 // ── 连接状态图标更新 ─────────────────────────
@@ -429,16 +429,14 @@ function startPolling() {
   if (isPolling) return;
   isPolling = true;
   chrome.storage.local.set({ [POLLING_STORAGE_KEY]: true });
+  ensurePollingAlarm();
   console.log('[FindJobs] 开始轮询后端命令');
   pollCommand();
 }
 
 function stopPolling() {
   isPolling = false;
-  if (pollingTimer) {
-    clearTimeout(pollingTimer);
-    pollingTimer = null;
-  }
+  chrome.alarms.clear(POLL_ALARM_NAME);
   chrome.storage.local.set({ [POLLING_STORAGE_KEY]: false });
   console.log('[FindJobs] 停止轮询');
 }
@@ -509,6 +507,12 @@ async function onCompanionTabUpdated(tid, changeInfo, tab) {
 }
 
 chrome.tabs.onUpdated.addListener(onCompanionTabUpdated);
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== POLL_ALARM_NAME) return;
+  if (!isPolling) return;
+  pollCommand();
+});
 
 // ── 模式切换 ──────────────────────────────────
 
@@ -589,4 +593,10 @@ chrome.storage.local.get(['mode', POLLING_STORAGE_KEY], (result) => {
   }
 
   startPolling();
+});
+
+chrome.runtime.onStartup?.addListener(() => {
+  if (!isPolling) return;
+  ensurePollingAlarm();
+  pollCommand();
 });
