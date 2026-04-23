@@ -103,6 +103,7 @@ class BaseScraper(ABC):
             collected = 0
             seen_urls_in_task: set[str] = set()
             stale_pages = 0
+            refresh_stale_pages = 0
             page_plan, refresh_cutoff = self._build_page_plan(task)
             scan_limit = len(page_plan)
             mode = (task.mode or "manual").lower()
@@ -124,7 +125,11 @@ class BaseScraper(ABC):
                         self.PLATFORM, page_delay[0], page_delay[1],
                         detail_delay[0], detail_delay[1])
 
-            for index, page_num in enumerate(page_plan, start=1):
+            cursor = 0
+            while cursor < scan_limit:
+                index = cursor + 1
+                page_num = page_plan[cursor]
+
                 if not self._running_tasks.get(task_id, False):
                     logger.info("[%s] 任务 %d 被取消", self.PLATFORM, task_id)
                     break
@@ -193,21 +198,37 @@ class BaseScraper(ABC):
                         missing_url,
                     )
 
+                jump_to_resume = False
                 if pending_jobs:
                     stale_pages = 0
+                    refresh_stale_pages = 0
                 else:
-                    stale_pages += 1
-                    logger.info(
-                        "[%s] 任务 %d: 第 %d 页没有新岗位，连续空转页数 %d/%d",
-                        self.PLATFORM,
-                        task_id,
-                        page_num,
-                        stale_pages,
-                        task.stop_after_stale_pages,
-                    )
-                    if task.stop_after_stale_pages > 0 and stale_pages >= task.stop_after_stale_pages:
-                        logger.info("[%s] 任务 %d: 连续空转页达到阈值，提前结束", self.PLATFORM, task_id)
-                        break
+                    if mode == "smart" and current_phase == "refresh":
+                        refresh_stale_pages += 1
+                        logger.info(
+                            "[%s] 任务 %d: 第 %d 页首页探测无新增，刷新空转页数 %d/%d",
+                            self.PLATFORM,
+                            task_id,
+                            page_num,
+                            refresh_stale_pages,
+                            refresh_cutoff,
+                        )
+                        if refresh_cutoff > 0 and refresh_stale_pages >= refresh_cutoff and cursor + 1 < scan_limit:
+                            logger.info("[%s] 任务 %d: 首页连续无新增，提前切到历史续采页", self.PLATFORM, task_id)
+                            jump_to_resume = True
+                    else:
+                        stale_pages += 1
+                        logger.info(
+                            "[%s] 任务 %d: 第 %d 页没有新岗位，连续空转页数 %d/%d",
+                            self.PLATFORM,
+                            task_id,
+                            page_num,
+                            stale_pages,
+                            task.stop_after_stale_pages,
+                        )
+                        if task.stop_after_stale_pages > 0 and stale_pages >= task.stop_after_stale_pages:
+                            logger.info("[%s] 任务 %d: 连续空转页达到阈值，提前结束", self.PLATFORM, task_id)
+                            break
 
                 for i, job_data in enumerate(pending_jobs):
                     if not self._running_tasks.get(task_id, False):
@@ -236,7 +257,6 @@ class BaseScraper(ABC):
                     delay = random.uniform(*detail_delay)
                     await asyncio.sleep(delay)
 
-                # 更新已采集数
                 async with async_session_factory() as session:
                     t = await session.get(CollectionTask, task_id)
                     if t:
@@ -250,7 +270,12 @@ class BaseScraper(ABC):
                     logger.info("[%s] 任务 %d: 已达到目标新岗位数 %d，提前结束", self.PLATFORM, task_id, task.target_new_jobs)
                     break
 
-                if index < scan_limit:
+                if jump_to_resume:
+                    cursor = max(refresh_cutoff, cursor + 1)
+                    continue
+
+                cursor += 1
+                if cursor < scan_limit:
                     delay = random.uniform(*page_delay)
                     logger.info("[%s] 等待 %.1fs 后翻页...", self.PLATFORM, delay)
                     await asyncio.sleep(delay)
