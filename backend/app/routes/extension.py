@@ -133,8 +133,8 @@ async def report_result(report: ResultReport):
         "error": report.error,
         "security_check": report.security_check,
     }
-    ok = extension_bridge.report_result(report.command_id, result)
-    return {"received": ok}
+    disposition = extension_bridge.report_result(report.command_id, result)
+    return {"received": disposition == "received", "disposition": disposition}
 
 
 @router.get("/status")

@@ -14,13 +14,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from typing import Any, Optional
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
 EXTENSION_LONG_POLL_TIMEOUT = 5.0
-EXTENSION_CONNECTED_GRACE = 12.0
+EXTENSION_CONNECTED_GRACE = 18.0
+LATE_RESULT_HISTORY_LIMIT = 100
 
 
 class ExtensionBridge:
@@ -29,30 +31,26 @@ class ExtensionBridge:
     def __init__(self):
         self._command_queue: asyncio.Queue = asyncio.Queue()
         self._result_futures: dict[str, asyncio.Future] = {}
-        self._connected: bool = False
         self._last_poll: float = 0
+        self._last_result: float = 0
         self._security_check: bool = False
+        self._expired_commands: dict[str, float] = {}
+        self._late_result_ids: deque[str] = deque(maxlen=LATE_RESULT_HISTORY_LIMIT)
 
     @property
     def connected(self) -> bool:
         """扩展是否在线（最近一段时间内有轮询或结果回传）"""
-        return time.time() - self._last_poll < EXTENSION_CONNECTED_GRACE
+        latest_activity = max(self._last_poll, self._last_result)
+        return time.time() - latest_activity < EXTENSION_CONNECTED_GRACE
 
     @property
     def security_check(self) -> bool:
         return self._security_check
 
     async def send_command(self, cmd_type: str, timeout: float = 30, **kwargs) -> dict:
-        """发送命令给扩展，等待结果返回。
+        """发送命令给扩展，等待结果返回。"""
+        self._prune_expired_commands()
 
-        Args:
-            cmd_type: 命令类型 (navigate_and_extract_jobs, navigate_and_extract_detail, ping)
-            timeout: 等待超时（秒）
-            **kwargs: 命令参数
-
-        Returns:
-            扩展返回的结果 dict
-        """
         cmd_id = str(uuid4())[:8]
         loop = asyncio.get_running_loop()
         future = loop.create_future()
@@ -67,7 +65,6 @@ class ExtensionBridge:
             logger.info("[ExtBridge] 命令完成: %s (id=%s) success=%s",
                         cmd_type, cmd_id, result.get("success"))
 
-            # 处理安全检查
             if result.get("security_check"):
                 self._security_check = True
             else:
@@ -76,13 +73,14 @@ class ExtensionBridge:
             return result
         except asyncio.TimeoutError:
             self._result_futures.pop(cmd_id, None)
+            self._expired_commands[cmd_id] = time.time()
             logger.error("[ExtBridge] 命令超时: %s (id=%s)", cmd_type, cmd_id)
-            return {"success": False, "error": "命令执行超时"}
+            return {"success": False, "error": "命令执行超时", "transport_error": True}
 
     async def get_pending_command(self) -> Optional[dict]:
         """扩展调用：获取待执行命令。支持 long-poll（最多等5秒）。"""
         self._last_poll = time.time()
-        self._connected = True
+        self._prune_expired_commands()
 
         try:
             cmd = self._command_queue.get_nowait()
@@ -90,32 +88,52 @@ class ExtensionBridge:
         except asyncio.QueueEmpty:
             pass
 
-        # Long-poll: 等待最多 5 秒
         try:
             cmd = await asyncio.wait_for(self._command_queue.get(), timeout=EXTENSION_LONG_POLL_TIMEOUT)
             return cmd
         except asyncio.TimeoutError:
             return None
 
-    def report_result(self, command_id: str, result: dict) -> bool:
+    def report_result(self, command_id: str, result: dict) -> str:
         """扩展调用：报告命令执行结果。"""
-        self._last_poll = time.time()
+        now = time.time()
+        self._last_result = now
+        self._prune_expired_commands(now)
+
         future = self._result_futures.pop(command_id, None)
         if future and not future.done():
             future.set_result(result)
             logger.debug("[ExtBridge] 结果已送达: %s", command_id)
-            return True
+            return "received"
+
+        if command_id in self._expired_commands:
+            self._late_result_ids.append(command_id)
+            self._expired_commands.pop(command_id, None)
+            logger.warning("[ExtBridge] 收到超时后的晚到结果: %s", command_id)
+            return "late_result"
+
         logger.warning("[ExtBridge] 未找到命令 Future: %s", command_id)
-        return False
+        return "unknown_command"
 
     def get_status(self) -> dict:
+        self._prune_expired_commands()
         return {
             "connected": self.connected,
             "last_poll": self._last_poll,
+            "last_result": self._last_result,
             "pending_commands": self._command_queue.qsize(),
             "waiting_results": len(self._result_futures),
+            "expired_commands": len(self._expired_commands),
+            "late_results": len(self._late_result_ids),
             "security_check": self._security_check,
         }
+
+    def _prune_expired_commands(self, now: Optional[float] = None) -> None:
+        now = now or time.time()
+        stale_before = now - EXTENSION_CONNECTED_GRACE * 3
+        expired_ids = [cmd_id for cmd_id, expired_at in self._expired_commands.items() if expired_at < stale_before]
+        for cmd_id in expired_ids:
+            self._expired_commands.pop(cmd_id, None)
 
 
 # 全局单例
