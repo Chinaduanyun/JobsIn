@@ -250,8 +250,10 @@ class BaseScraper(ABC):
                         if detail_salary and (not list_salary or '?' in list_salary or not any(c.isdigit() for c in list_salary)):
                             job_data["salary"] = detail_salary
                         job_data.update(detail)
-                    except ExtensionTransportError:
-                        raise
+                    except ExtensionTransportError as e:
+                        if "安全验证" in str(e):
+                            raise
+                        logger.warning("[%s] 抓详情通道失败，跳过当前岗位 %s: %s", self.PLATFORM, job_data.get("url"), e)
                     except Exception as e:
                         logger.warning("[%s] 抓详情失败 %s: %s", self.PLATFORM, job_data.get("url"), e)
 
