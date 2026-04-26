@@ -170,7 +170,7 @@ class BossScraper(BaseScraper):
         result = await extension_bridge.send_command(
             "navigate_and_extract_detail",
             url=job_url,
-            timeout=25,
+            timeout=60,
         )
 
         if not result.get("success"):

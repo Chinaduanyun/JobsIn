@@ -333,7 +333,7 @@ async function handleExtractDetail(cmd) {
   const tid = await ensureTab();
 
   try {
-    await navigateAndWait(tid, url);
+    await navigateAndWait(tid, url, 30000);
   } catch (err) {
     return { success: false, error: `导航失败: ${err.message}` };
   }
@@ -344,15 +344,28 @@ async function handleExtractDetail(cmd) {
     await chrome.tabs.update(tid, { active: true });
     return { success: false, error: 'security_check', security_check: true };
   }
-
-  await new Promise(r => setTimeout(r, 1500));
-
-  try {
-    const response = await sendToContent(tid, { action: 'extract_detail' });
-    return { success: true, data: response };
-  } catch (err) {
-    return { success: false, error: `提取失败: ${err.message}` };
+  if (currentUrl.includes('about:blank') && url !== 'about:blank') {
+    return { success: false, error: '页面被重定向到空白页，可能被检测' };
   }
+
+  await chrome.tabs.update(tid, { active: true });
+  await new Promise(r => setTimeout(r, 2500));
+
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await sendToContent(tid, { action: 'extract_detail' }, 30000);
+      if (response?.description || response?.company_size || response?.company_industry || response?.salary) {
+        return { success: true, data: response };
+      }
+      lastError = new Error('详情页内容尚未就绪');
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  return { success: false, error: `提取失败: ${lastError?.message || '未知错误'}` };
 }
 
 // ── 自动投递 ──────────────────────────────────
