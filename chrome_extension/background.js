@@ -352,7 +352,7 @@ async function handleExtractDetail(cmd) {
   await new Promise(r => setTimeout(r, 2500));
 
   let lastError = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await sendToContent(tid, { action: 'extract_detail' }, 30000);
       if (response?.description || response?.company_size || response?.company_industry || response?.salary) {
