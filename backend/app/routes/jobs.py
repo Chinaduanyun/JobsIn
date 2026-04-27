@@ -17,7 +17,7 @@ async def list_jobs(
     keyword: str = Query(None),
     hr_active: str = Query(None, description="HR活跃筛选: active(近期活跃) / inactive(不活跃) / online(在线)"),
     page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
+    size: int = Query(50, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
 ):
     stmt = select(Job).order_by(Job.collected_at.desc())

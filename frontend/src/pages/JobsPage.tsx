@@ -31,7 +31,7 @@ export default function JobsPage() {
     items: [],
     total: 0,
     page: 1,
-    size: 20,
+    size: 50,
   })
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(1)
@@ -45,7 +45,7 @@ export default function JobsPage() {
 
   const fetchJobs = (p: number, kw: string, hrFilter?: string) => {
     const filter = hrFilter !== undefined ? hrFilter : hrActiveFilter
-    jobsApi.list({ page: p, page_size: 20, keyword: kw || undefined, hr_active: filter || undefined }).then(setData).catch(() => {})
+    jobsApi.list({ page: p, page_size: 50, keyword: kw || undefined, hr_active: filter || undefined }).then(setData).catch(() => {})
   }
 
   useEffect(() => {
