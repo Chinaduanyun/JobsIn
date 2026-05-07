@@ -23,7 +23,7 @@ async def _get_concurrency() -> int:
         async with async_session() as session:
             cfg = await session.get(SystemConfig, "ai_concurrency")
             if cfg and cfg.value.isdigit():
-                return max(1, min(int(cfg.value), 10))
+                return max(1, min(int(cfg.value), 20))
     except Exception:
         pass
     return 1

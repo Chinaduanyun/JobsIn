@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobsIn 助手",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "JobsIn 多平台岗位采集助手 — 智能采集与自动投递",
   "permissions": [
     "tabs",
