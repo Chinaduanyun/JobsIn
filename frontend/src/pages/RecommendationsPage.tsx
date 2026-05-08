@@ -35,7 +35,7 @@ export default function RecommendationsPage() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [excludeApplied, setExcludeApplied] = useState(false)
+  const [excludeApplied, setExcludeApplied] = useState(true)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [batchLoading, setBatchLoading] = useState('')
   const [batchMsg, setBatchMsg] = useState('')
