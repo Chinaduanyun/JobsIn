@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobsIn 助手",
-  "version": "1.6.5",
+  "version": "1.6.6",
   "description": "JobsIn：基于简历匹配、AI 推荐与 Chrome 扩展执行的岗位发现与投递工具",
   "permissions": [
     "tabs",
