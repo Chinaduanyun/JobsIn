@@ -108,16 +108,6 @@ export default function ResumesPage() {
         </CardContent>
       </Card>
 
-      {content && (
-        <Card className="mt-4">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">内容预览</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="text-sm whitespace-pre-wrap leading-relaxed">{content}</pre>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }
