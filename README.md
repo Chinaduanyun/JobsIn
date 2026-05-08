@@ -278,7 +278,6 @@ JobsIn/
 │   ├── manifest.json
 │   ├── background.js            # Service Worker
 │   └── content.js               # 页面注入脚本
-├── Development/                 # 开发文档
 ├── start.py                     # 跨平台启动脚本
 ├── start.sh                     # macOS/Linux 启动脚本
 └── start.bat                    # Windows 启动脚本
