@@ -320,7 +320,7 @@ export default function TasksPage() {
         <Alert className="mb-4">
           <Puzzle className="h-4 w-4" />
           <AlertDescription>
-            Chrome 扩展未连接。请在 Chrome 中安装并启用「FindJobs 助手」扩展，详见「系统设置」页面。
+            Chrome 扩展未连接。请在 Chrome 中安装并启用「JobsIn 助手」扩展，详见「系统设置」页面。
           </AlertDescription>
         </Alert>
       )}

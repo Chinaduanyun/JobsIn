@@ -79,7 +79,7 @@ class BaseScraper(ABC):
     async def run_task(self, task_id: int) -> None:
         """执行一个采集任务（通用流程）"""
         if not extension_bridge.connected:
-            await self._fail_task(task_id, "Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
+            await self._fail_task(task_id, "Chrome 扩展未连接，请安装并启用 JobsIn 助手扩展")
             return
 
         if not boss_browser.logged_in:

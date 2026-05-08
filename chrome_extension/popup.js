@@ -1,5 +1,5 @@
 /**
- * FindJobs Chrome Extension — Popup Script
+ * JobsIn Chrome Extension — Popup Script
  */
 
 const statusDot = document.getElementById('statusDot');

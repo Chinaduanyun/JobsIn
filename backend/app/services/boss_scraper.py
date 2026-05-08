@@ -56,7 +56,7 @@ class BossScraper(BaseScraper):
 
     async def scrape_page(self, keyword: str, city_code: str, salary: str, page: int) -> list[dict]:
         if not extension_bridge.connected:
-            raise ExtensionTransportError("Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
+            raise ExtensionTransportError("Chrome 扩展未连接，请安装并启用 JobsIn 助手扩展")
 
         # 构造搜索 URL
         search_url = f"{BASE_URL}/web/geek/job?query={quote(keyword)}&city={city_code}&page={page}"
@@ -163,7 +163,7 @@ class BossScraper(BaseScraper):
             return {}
 
         if not extension_bridge.connected:
-            raise ExtensionTransportError("Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
+            raise ExtensionTransportError("Chrome 扩展未连接，请安装并启用 JobsIn 助手扩展")
 
         logger.debug("[Boss] 通过扩展获取详情: %s", job_url)
 

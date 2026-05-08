@@ -1,5 +1,5 @@
 /**
- * FindJobs Chrome Extension — Content Script
+ * JobsIn Chrome Extension — Content Script
  *
  * 运行在 zhipin.com 页面中，负责从 DOM 提取岗位数据。
  * 由 background.js 通过 chrome.tabs.sendMessage 调用。
@@ -1047,7 +1047,7 @@ function decodeFontEncryptedText(element) {
 
     return decoded.trim();
   } catch (e) {
-    console.warn('[FindJobs] 字体解密失败:', e);
+    console.warn('[JobsIn] 字体解密失败:', e);
     return text.trim();
   }
 }
@@ -1567,7 +1567,7 @@ function extractFullJob() {
       },
     };
   } catch (e) {
-    console.warn('[FindJobs] 陪伴模式提取失败:', e);
+    console.warn('[JobsIn] 陪伴模式提取失败:', e);
     return { success: false, error: e.message };
   }
 }
@@ -1597,14 +1597,14 @@ async function applyJob(greetingText) {
     const btnText = chatBtn.innerText.trim();
     const isFriend = chatBtn.getAttribute('data-isfriend') === 'true';
     const redirectUrl = chatBtn.getAttribute('redirect-url');
-    console.log('[FindJobs] 找到按钮:', btnText, 'isFriend:', isFriend, 'redirect:', redirectUrl);
+    console.log('[JobsIn] 找到按钮:', btnText, 'isFriend:', isFriend, 'redirect:', redirectUrl);
 
     if (isFriend || btnText.includes('继续沟通')) {
-      console.log('[FindJobs] 继续沟通场景 — 先返回信号，延迟点击');
+      console.log('[JobsIn] 继续沟通场景 — 先返回信号，延迟点击');
       chatBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
       setTimeout(() => {
         chatBtn.click();
-        console.log('[FindJobs] 延迟点击已执行');
+        console.log('[JobsIn] 延迟点击已执行');
       }, 300);
       return {
         success: true,
@@ -1615,7 +1615,7 @@ async function applyJob(greetingText) {
     chatBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
     await sleep(500);
     chatBtn.click();
-    console.log('[FindJobs] 已点击按钮');
+    console.log('[JobsIn] 已点击按钮');
 
     await sleep(2000);
 
@@ -1633,7 +1633,7 @@ async function applyJob(greetingText) {
       data: { sent: false, reason: 'button_clicked', message: '已点击沟通按钮，但未检测到弹窗或页面跳转' },
     };
   } catch (e) {
-    console.error('[FindJobs] 投递失败:', e);
+    console.error('[JobsIn] 投递失败:', e);
     return { success: false, error: e.message };
   }
 }
@@ -1673,11 +1673,11 @@ async function tryPopupGreeting(greetingText) {
   }
 
   if (!input) {
-    console.log('[FindJobs] 未找到弹窗输入框');
+    console.log('[JobsIn] 未找到弹窗输入框');
     return null;
   }
 
-  console.log('[FindJobs] 找到弹窗输入框:', input.tagName, input.getAttribute('placeholder'));
+  console.log('[JobsIn] 找到弹窗输入框:', input.tagName, input.getAttribute('placeholder'));
 
   if (!greetingText) {
     return {
@@ -1691,14 +1691,14 @@ async function tryPopupGreeting(greetingText) {
 
   const sent = await pressEnterToSend(input);
   if (sent) {
-    console.log('[FindJobs] 弹窗回车发送成功');
+    console.log('[JobsIn] 弹窗回车发送成功');
     return { success: true, data: { sent: true, message: '已在弹窗中发送文案' } };
   }
 
   const clicked = await findAndClickSend();
   if (clicked) {
     await sleep(1000);
-    console.log('[FindJobs] 弹窗点击发送成功');
+    console.log('[JobsIn] 弹窗点击发送成功');
     return { success: true, data: { sent: true, message: '已在弹窗中点击发送' } };
   }
 
@@ -1788,7 +1788,7 @@ async function typeIntoInput(el, text) {
 
   try {
     document.execCommand('insertText', false, text);
-    console.log('[FindJobs] 使用 execCommand 输入');
+    console.log('[JobsIn] 使用 execCommand 输入');
     return;
   } catch {}
 
@@ -1800,7 +1800,7 @@ async function typeIntoInput(el, text) {
       el.innerText = text;
     }
     el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: text, bubbles: true }));
-    console.log('[FindJobs] 使用 InputEvent 输入');
+    console.log('[JobsIn] 使用 InputEvent 输入');
     return;
   } catch {}
 
@@ -1821,7 +1821,7 @@ async function typeIntoInput(el, text) {
     el.innerText = text;
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  console.log('[FindJobs] 使用直接赋值输入');
+  console.log('[JobsIn] 使用直接赋值输入');
 }
 
 function clickElement(el) {
@@ -1854,10 +1854,10 @@ async function pressEnterToSend(inputEl) {
     inputEl.dispatchEvent(new KeyboardEvent('keyup', { ...enterOpts, cancelable: false }));
     await sleep(800);
 
-    console.log('[FindJobs] 已按 Enter 发送');
+    console.log('[JobsIn] 已按 Enter 发送');
     return true;
   } catch (e) {
-    console.warn('[FindJobs] Enter 发送失败:', e);
+    console.warn('[JobsIn] Enter 发送失败:', e);
     return false;
   }
 }
@@ -1868,7 +1868,7 @@ async function findAndClickSend() {
     const btn = document.querySelector(sel);
     if (btn && !btn.disabled) {
       clickElement(btn);
-      console.log('[FindJobs] 通过选择器找到发送按钮:', sel);
+      console.log('[JobsIn] 通过选择器找到发送按钮:', sel);
       return true;
     }
   }
@@ -1878,7 +1878,7 @@ async function findAndClickSend() {
     const t = el.innerText.trim();
     if ((t === '发送' || t === '确定' || t === '提交') && !el.disabled) {
       clickElement(el);
-      console.log('[FindJobs] 通过文本找到发送按钮:', t, el.tagName);
+      console.log('[JobsIn] 通过文本找到发送按钮:', t, el.tagName);
       return true;
     }
   }

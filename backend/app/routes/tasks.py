@@ -120,7 +120,7 @@ async def start_task(task_id: int, session: AsyncSession = Depends(get_session))
         raise HTTPException(status_code=400, detail=f"已有运行中的 {task.platform} 任务（#{running_task.id}），请先暂停或停止它")
 
     if not extension_bridge.connected:
-        raise HTTPException(status_code=400, detail="Chrome 扩展未连接，请安装并启用 FindJobs 助手扩展")
+        raise HTTPException(status_code=400, detail="Chrome 扩展未连接，请安装并启用 JobsIn 助手扩展")
 
     if not boss_browser.logged_in:
         raise HTTPException(status_code=400, detail="请先登录 Boss 直聘")

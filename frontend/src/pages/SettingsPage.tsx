@@ -76,7 +76,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p className="text-muted-foreground">
-            FindJobs 使用 Chrome 扩展在真实浏览器中采集岗位数据，无自动化痕迹。
+            JobsIn 使用 Chrome 扩展在真实浏览器中采集岗位数据，无自动化痕迹。
           </p>
           <div className="bg-muted p-3 rounded-md space-y-2">
             <p className="font-medium">安装步骤：</p>

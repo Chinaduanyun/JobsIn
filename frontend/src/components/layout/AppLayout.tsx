@@ -31,7 +31,7 @@ export default function AppLayout() {
       <aside className="w-56 border-r bg-muted/30 flex flex-col">
         <div className="p-4 border-b">
           <h1 className="text-lg font-bold">🔍 JobsIn</h1>
-          <p className="text-xs text-muted-foreground">多平台智能投递</p>
+          <p className="text-xs text-muted-foreground">AI 驱动的岗位发现与投递工作台</p>
         </div>
         <nav className="flex-1 p-2 space-y-1">
           {navItems.map((item) => (

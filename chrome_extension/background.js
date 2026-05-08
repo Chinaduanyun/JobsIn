@@ -1,5 +1,5 @@
 /**
- * FindJobs Chrome Extension — Background Service Worker
+ * JobsIn Chrome Extension — Background Service Worker
  *
  * 职责:
  * 1. 自动模式: 轮询后端获取采集命令 (navigate + extract)
@@ -116,12 +116,12 @@ async function flushPendingResults() {
       if (report.retry_count >= MAX_PENDING_RESULT_RETRIES) {
         pendingResultReports = pendingResultReports.filter(item => item.command_id !== report.command_id);
         persistPendingResults();
-        console.warn('[FindJobs] 丢弃多次失败的结果上报:', report.command_id);
+        console.warn('[JobsIn] 丢弃多次失败的结果上报:', report.command_id);
         continue;
       }
       pendingResultReports = pendingResultReports.map(item => item.command_id === report.command_id ? report : item);
       persistPendingResults();
-      console.warn('[FindJobs] 结果补发失败，将继续重试:', err.message || err);
+      console.warn('[JobsIn] 结果补发失败，将继续重试:', err.message || err);
       break;
     }
   }
@@ -154,7 +154,7 @@ async function pollCommand() {
     const data = await resp.json();
 
     if (data && data.id) {
-      console.log('[FindJobs] 收到命令:', data.type, data.id);
+      console.log('[JobsIn] 收到命令:', data.type, data.id);
       await executeCommand(data);
     }
   } catch (err) {
@@ -162,7 +162,7 @@ async function pollCommand() {
       connected = false;
       updateConnectionIcon();
     }
-    console.debug('[FindJobs] 轮询失败:', err.message);
+    console.debug('[JobsIn] 轮询失败:', err.message);
   } finally {
     pollInFlight = false;
     ensurePollingAlarm();
@@ -220,7 +220,7 @@ async function executeCommand(cmd) {
   try {
     await reportCommandResult(report);
   } catch (err) {
-    console.error('[FindJobs] 报告结果失败，已加入重试队列:', err);
+    console.error('[JobsIn] 报告结果失败，已加入重试队列:', err);
     await enqueuePendingResult(report);
   }
 }
@@ -407,13 +407,13 @@ async function handleApplyJob(cmd) {
     // 1. Chrome 原生: "back/forward cache", "message channel is closed", "Receiving end does not exist"
     // 2. 自定义超时: "content script 响应超时" (content script 收到消息但中途被销毁)
     const msg = err.message || '';
-    console.log('[FindJobs] apply_job 异常:', msg);
+    console.log('[JobsIn] apply_job 异常:', msg);
 
     // 检查是否跳转到了聊天页
     try {
       const tab = await chrome.tabs.get(tid);
       if (tab.url && tab.url.includes('/web/geek/chat')) {
-        console.log('[FindJobs] 检测到已在聊天页，继续发送文案');
+        console.log('[JobsIn] 检测到已在聊天页，继续发送文案');
         return await handleChatPageGreeting(tid, greeting_text);
       }
     } catch { /* tab 可能已关闭 */ }
@@ -435,7 +435,7 @@ async function handleApplyJob(cmd) {
  * 在聊天页发送打招呼文案
  */
 async function handleChatPageGreeting(tid, greeting_text) {
-  console.log('[FindJobs] 等待聊天页加载...');
+  console.log('[JobsIn] 等待聊天页加载...');
 
   // 先确认已到聊天页 (可能正在跳转中)
   await waitForNavigation(tid, '/web/geek/chat', 10000);
@@ -454,7 +454,7 @@ async function handleChatPageGreeting(tid, greeting_text) {
       return { success: true, data: chatResponse };
     } catch (err) {
       lastErr = err;
-      console.log(`[FindJobs] 聊天页发送尝试 ${attempt + 1} 失败: ${err.message}`);
+      console.log(`[JobsIn] 聊天页发送尝试 ${attempt + 1} 失败: ${err.message}`);
       if (attempt < 2) await new Promise(r => setTimeout(r, 2000));
     }
   }
@@ -498,7 +498,7 @@ function startPolling() {
   isPolling = true;
   chrome.storage.local.set({ [POLLING_STORAGE_KEY]: true });
   ensurePollingAlarm();
-  console.log('[FindJobs] 开始轮询后端命令');
+  console.log('[JobsIn] 开始轮询后端命令');
   pollCommand();
 }
 
@@ -506,7 +506,7 @@ function stopPolling() {
   isPolling = false;
   chrome.alarms.clear(POLL_ALARM_NAME);
   chrome.storage.local.set({ [POLLING_STORAGE_KEY]: false });
-  console.log('[FindJobs] 停止轮询');
+  console.log('[JobsIn] 停止轮询');
 }
 
 // ── 陪伴模式：监听标签页 URL 变化 ──────────────
@@ -526,7 +526,7 @@ async function onCompanionTabUpdated(tid, changeInfo, tab) {
   if (processingTabs.has(tid)) return;
 
   processingTabs.add(tid);
-  console.log('[FindJobs][陪伴] 检测到岗位详情页:', tab.url);
+  console.log('[JobsIn][陪伴] 检测到岗位详情页:', tab.url);
 
   // 等待页面渲染
   await new Promise(r => setTimeout(r, 2000));
@@ -535,7 +535,7 @@ async function onCompanionTabUpdated(tid, changeInfo, tab) {
     const response = await sendToContent(tid, { action: 'extract_full_job' }, 10000);
 
     if (!response || !response.success || !response.data || !response.data.title) {
-      console.warn('[FindJobs][陪伴] 提取失败或无标题');
+      console.warn('[JobsIn][陪伴] 提取失败或无标题');
       return;
     }
 
@@ -550,7 +550,7 @@ async function onCompanionTabUpdated(tid, changeInfo, tab) {
       const result = await resp.json();
       if (result.saved) {
         savedUrls.add(tab.url);
-        console.log('[FindJobs][陪伴] ✅ 岗位已保存:', response.data.title, '(id=' + result.job_id + ')');
+        console.log('[JobsIn][陪伴] ✅ 岗位已保存:', response.data.title, '(id=' + result.job_id + ')');
         // 通过 badge 提示用户
         chrome.action.setBadgeText({ text: '✓', tabId: tid });
         chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId: tid });
@@ -559,7 +559,7 @@ async function onCompanionTabUpdated(tid, changeInfo, tab) {
         }, 3000);
       } else if (result.reason === 'duplicate') {
         savedUrls.add(tab.url);
-        console.log('[FindJobs][陪伴] 岗位已存在，跳过');
+        console.log('[JobsIn][陪伴] 岗位已存在，跳过');
         chrome.action.setBadgeText({ text: '⊘', tabId: tid });
         chrome.action.setBadgeBackgroundColor({ color: '#eab308', tabId: tid });
         setTimeout(() => {
@@ -568,7 +568,7 @@ async function onCompanionTabUpdated(tid, changeInfo, tab) {
       }
     }
   } catch (err) {
-    console.error('[FindJobs][陪伴] 保存失败:', err);
+    console.error('[JobsIn][陪伴] 保存失败:', err);
   } finally {
     processingTabs.delete(tid);
   }
@@ -587,7 +587,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 function setMode(mode) {
   currentMode = normalizeMode(mode);
   chrome.storage.local.set({ mode: currentMode });
-  console.log('[FindJobs] 模式切换:', currentMode);
+  console.log('[JobsIn] 模式切换:', currentMode);
 }
 
 // ── 消息处理 (来自 popup) ────────────────────
@@ -653,7 +653,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.storage.local.get(['mode', POLLING_STORAGE_KEY, PENDING_RESULTS_STORAGE_KEY], async (result) => {
   currentMode = normalizeMode(result.mode);
   pendingResultReports = Array.isArray(result[PENDING_RESULTS_STORAGE_KEY]) ? result[PENDING_RESULTS_STORAGE_KEY] : [];
-  console.log('[FindJobs] 初始模式:', currentMode);
+  console.log('[JobsIn] 初始模式:', currentMode);
   updateConnectionIcon(); // 初始灰色
 
   if (result[POLLING_STORAGE_KEY] === false) {
